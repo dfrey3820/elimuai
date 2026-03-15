@@ -1,0 +1,255 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Cost-optimized ECS deployment for ElimuAI (frontend + backend in one service)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: elimuai
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  FrontendImage:
+    Type: String
+  BackendImage:
+    Type: String
+  DesiredCount:
+    Type: Number
+    Default: 1
+  TaskCpu:
+    Type: String
+    Default: '512'
+    AllowedValues: ['256', '512', '1024', '2048']
+  TaskMemory:
+    Type: String
+    Default: '1024'
+    AllowedValues: ['512', '1024', '2048', '3072', '4096']
+  SpotWeight:
+    Type: Number
+    Default: 4
+  OnDemandWeight:
+    Type: Number
+    Default: 1
+  FrontendUrl:
+    Type: String
+    Description: Public app URL used by backend CORS (e.g. https://app.example.com)
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+  RedisUrl:
+    Type: String
+    NoEcho: true
+  JwtSecret:
+    Type: String
+    NoEcho: true
+  AnthropicApiKey:
+    Type: String
+    NoEcho: true
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub '${ProjectName}-cluster'
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ProjectName}/backend'
+      RetentionInDays: 7
+
+  FrontendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${ProjectName}/frontend'
+      RetentionInDays: 7
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName} ALB security group'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub '${ProjectName} ECS service security group'
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub '${ProjectName}-alb'
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref PublicSubnets
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-frontend'
+      VpcId: !Ref VpcId
+      Port: 80
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: '200-399'
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ecs-exec-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-ecs-task-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-task'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ContainerDefinitions:
+        - Name: backend
+          Image: !Ref BackendImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 5000
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: PORT
+              Value: '5000'
+            - Name: FRONTEND_URL
+              Value: !Ref FrontendUrl
+            - Name: DATABASE_URL
+              Value: !Ref DatabaseUrl
+            - Name: REDIS_URL
+              Value: !Ref RedisUrl
+            - Name: JWT_SECRET
+              Value: !Ref JwtSecret
+            - Name: ANTHROPIC_API_KEY
+              Value: !Ref AnthropicApiKey
+            - Name: MPESA_ENVIRONMENT
+              Value: sandbox
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref BackendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: backend
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - wget -qO- http://127.0.0.1:5000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 25
+
+        - Name: frontend
+          Image: !Ref FrontendImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          DependsOn:
+            - ContainerName: backend
+              Condition: START
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FrontendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: HttpListener
+    Properties:
+      ServiceName: !Sub '${ProjectName}-service'
+      Cluster: !Ref Cluster
+      DesiredCount: !Ref DesiredCount
+      TaskDefinition: !Ref TaskDefinition
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: !Ref SpotWeight
+        - CapacityProvider: FARGATE
+          Weight: !Ref OnDemandWeight
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref PublicSubnets
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+      LoadBalancers:
+        - ContainerName: frontend
+          ContainerPort: 80
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt Service.Name
+  AlbDnsName:
+    Value: !GetAtt Alb.DNSName
+  AlbUrl:
+    Value: !Sub 'http://${Alb.DNSName}'

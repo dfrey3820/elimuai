@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: elimuai_postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: elimuai_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  backend:
+    image: ${BACKEND_IMAGE}
+    container_name: elimuai_backend
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      FRONTEND_URL: ${FRONTEND_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
+      MPESA_ENVIRONMENT: ${MPESA_ENVIRONMENT}
+      MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY}
+      MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET}
+      MPESA_PASSKEY: ${MPESA_PASSKEY}
+      MPESA_SHORTCODE: ${MPESA_SHORTCODE}
+      MPESA_BASE_URL: ${MPESA_BASE_URL}
+      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL}
+      SENDGRID_API_KEY: ${SENDGRID_API_KEY}
+      EMAIL_FROM: ${EMAIL_FROM}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME}
+      AFRICASTALKING_API_KEY: ${AFRICASTALKING_API_KEY}
+      AFRICASTALKING_USERNAME: ${AFRICASTALKING_USERNAME}
+      AFRICASTALKING_SENDER_ID: ${AFRICASTALKING_SENDER_ID}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+
+  frontend:
+    image: ${FRONTEND_IMAGE}
+    container_name: elimuai_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
+
+volumes:
+  pg_data:
+  redis_data:

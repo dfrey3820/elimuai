@@ -1,0 +1,23 @@
+{
+  "name": "elimuai",
+  "version": "1.0.0",
+  "description": "ElimuAI — AI-Powered Learning Platform for East Africa (Kenya CBC, Tanzania, Uganda)",
+  "private": true,
+  "workspaces": ["frontend", "backend"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "dev:local": "./scripts/dev-local.sh",
+    "dev:stack": "docker-compose up -d --build postgres redis backend",
+    "dev:frontend": "npm --prefix frontend run dev -- --host 0.0.0.0 --port 3000",
+    "deploy:ecs": "./scripts/deploy-ecs-cost.sh",
+    "deploy:ec2": "bash deploy/ec2/deploy.sh",
+    "provision:ec2": "bash scripts/provision-ec2-cheap.sh",
+    "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
+    "start": "npm run start --workspace=backend",
+    "db:migrate": "npm run migrate --workspace=backend",
+    "db:seed": "npm run seed --workspace=backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
