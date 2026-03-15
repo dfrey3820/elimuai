@@ -10,6 +10,7 @@
     "dev:stack": "docker-compose up -d --build postgres redis backend",
     "dev:frontend": "npm --prefix frontend run dev -- --host 0.0.0.0 --port 3000",
     "deploy:ecs": "./scripts/deploy-ecs-cost.sh",
+    "secrets:ec2": "./scripts/set-gh-secrets-ec2.sh",
     "deploy:ec2": "bash deploy/ec2/deploy.sh",
     "provision:ec2": "bash scripts/provision-ec2-cheap.sh",
     "build": "npm run build --workspace=frontend && npm run build --workspace=backend",
