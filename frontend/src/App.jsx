@@ -1001,6 +1001,7 @@ function SchoolAdmin({lang,user,onLogout}){
   const [settings,setSettings]=useState({});const [settingsLoading,setSettingsLoading]=useState(false);const [settingsSaved,setSettingsSaved]=useState(false);const [settingsTab,setSettingsTab]=useState("mpesa");
   // User management state
   const [adminUsers,setAdminUsers]=useState([]);const [usersTotal,setUsersTotal]=useState(0);const [usersPage,setUsersPage]=useState(1);const [usersRoleFilter,setUsersRoleFilter]=useState("");const [resetMsg,setResetMsg]=useState("");const [usersLoading,setUsersLoading]=useState(false);
+  const [showCreateUser,setShowCreateUser]=useState(false);const [createUserForm,setCreateUserForm]=useState({name:"",email:"",phone:"",password:"",role:"student",country:"KE",grade_level:""});const [createUserMsg,setCreateUserMsg]=useState("");const [createUserSaving,setCreateUserSaving]=useState(false);
   // Coupon management state
   const [coupons,setCoupons]=useState([]);const [couponsTotal,setCouponsTotal]=useState(0);const [couponsPage,setCouponsPage]=useState(1);const [couponsLoading,setCouponsLoading]=useState(false);
   const [showCouponForm,setShowCouponForm]=useState(false);const [editCoupon,setEditCoupon]=useState(null);
@@ -1064,6 +1065,17 @@ function SchoolAdmin({lang,user,onLogout}){
       const d=await r.json();
       if(d?.user)setAdminUsers(p=>p.map(u=>u.id===uid?{...u,role:d.user.role}:u));
     }catch{}
+  };
+  const createUser=async()=>{
+    if(!createUserForm.name||!createUserForm.email||!createUserForm.password){setCreateUserMsg("Name, email and password required");return;}
+    if(createUserForm.password.length<8){setCreateUserMsg("Password must be at least 8 characters");return;}
+    setCreateUserSaving(true);setCreateUserMsg("");
+    try{
+      const d=await apiPost("/api/admin/users",createUserForm);
+      if(d?.user){setCreateUserMsg("");setShowCreateUser(false);setCreateUserForm({name:"",email:"",phone:"",password:"",role:"student",country:"KE",grade_level:""});setUsersPage(1);setUsersRoleFilter("");
+        setUsersLoading(true);apiGet("/api/admin/users",{page:1,limit:20}).then(r=>{setAdminUsers(r?.users||[]);setUsersTotal(r?.total||0);}).catch(()=>{}).finally(()=>setUsersLoading(false));
+      }
+    }catch(e){setCreateUserMsg(e?.message||"Failed to create user");}finally{setCreateUserSaving(false);}
   };
   const sidebarItems=[{l:"Overview",i:"📊"},{l:"Transactions",i:"💰"},{l:"SMS Logs",i:"📱"},{l:"Users",i:"👤"},{l:"Students",i:"👥"},{l:"Teachers",i:"👨‍🏫"},{l:"Coupons",i:"🎟️"},{l:"Settings",i:"⚙️"},{l:"Reports",i:"📈"}];
   const [sideOpen,setSideOpen]=useState(false);
@@ -1271,8 +1283,11 @@ function SchoolAdmin({lang,user,onLogout}){
       </>)}
     </>)}
     {tab==="Users"&&(<>
-      <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
-        {["","student","teacher","parent","admin","super_admin"].map(f=>(<button key={f||"all"} onClick={()=>{setUsersRoleFilter(f);setUsersPage(1);}} style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",background:usersRoleFilter===f?C.gold:C.card,color:usersRoleFilter===f?C.bg:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:800}}>{f||"All"}</button>))}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {["","student","teacher","parent","admin","super_admin"].map(f=>(<button key={f||"all"} onClick={()=>{setUsersRoleFilter(f);setUsersPage(1);}} style={{padding:"4px 12px",borderRadius:20,border:"none",cursor:"pointer",background:usersRoleFilter===f?C.gold:C.card,color:usersRoleFilter===f?C.bg:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:800}}>{f||"All"}</button>))}
+        </div>
+        <button onClick={()=>{setCreateUserMsg("");setShowCreateUser(true);}} style={{padding:"6px 12px",borderRadius:10,border:"none",cursor:"pointer",background:`linear-gradient(135deg,${C.gold},${C.amber})`,color:C.bg,fontSize:11,fontFamily:"'Nunito',sans-serif",fontWeight:800,flexShrink:0}}>+ Create User</button>
       </div>
       <p style={{color:C.muted,fontSize:10,margin:"0 0 8px",fontFamily:"'Nunito',sans-serif"}}>{usersTotal} users</p>
       {resetMsg&&<p style={{color:C.green,fontSize:11,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 8px",padding:"6px 10px",background:`${C.green}11`,borderRadius:8}}>{resetMsg}</p>}
@@ -1304,6 +1319,23 @@ function SchoolAdmin({lang,user,onLogout}){
         <button disabled={usersPage<=1} onClick={()=>setUsersPage(p=>p-1)} style={{padding:"6px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:11,cursor:"pointer",opacity:usersPage<=1?0.4:1}}>← Prev</button>
         <span style={{color:C.muted,fontSize:11,fontFamily:"'Nunito',sans-serif",alignSelf:"center"}}>Page {usersPage}</span>
         <button disabled={usersPage*20>=usersTotal} onClick={()=>setUsersPage(p=>p+1)} style={{padding:"6px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:11,cursor:"pointer",opacity:usersPage*20>=usersTotal?0.4:1}}>Next →</button>
+      </div>)}
+      {/* Create User Modal */}
+      {showCreateUser&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:22,width:"100%",maxWidth:440,maxHeight:"90vh",overflowY:"auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}><h3 style={{color:C.text,fontFamily:"'Playfair Display',serif",fontWeight:900,margin:0}}>Create User</h3><button onClick={()=>setShowCreateUser(false)} style={{background:"none",border:"none",color:C.muted,fontSize:22,cursor:"pointer"}}>×</button></div>
+          {createUserMsg&&<p style={{color:C.red,fontSize:11,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 8px",padding:"6px 10px",background:`${C.red}11`,borderRadius:8}}>{createUserMsg}</p>}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div style={{gridColumn:"1/-1"}}><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Full Name *</p><input value={createUserForm.name} onChange={e=>setCreateUserForm(p=>({...p,name:e.target.value}))} placeholder="John Doe" style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
+            <div><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Email *</p><input type="email" value={createUserForm.email} onChange={e=>setCreateUserForm(p=>({...p,email:e.target.value}))} placeholder="user@example.com" style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
+            <div><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Phone</p><input value={createUserForm.phone} onChange={e=>setCreateUserForm(p=>({...p,phone:e.target.value}))} placeholder="+254..." style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
+            <div><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Password *</p><input type="password" value={createUserForm.password} onChange={e=>setCreateUserForm(p=>({...p,password:e.target.value}))} placeholder="Min 8 chars" style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
+            <div><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Role *</p><select value={createUserForm.role} onChange={e=>setCreateUserForm(p=>({...p,role:e.target.value}))} style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}>{["student","teacher","parent","admin","super_admin"].map(r=>(<option key={r} value={r}>{r}</option>))}</select></div>
+            <div><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Country</p><input value={createUserForm.country} onChange={e=>setCreateUserForm(p=>({...p,country:e.target.value}))} placeholder="KE" style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
+            <div><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Grade Level</p><input value={createUserForm.grade_level} onChange={e=>setCreateUserForm(p=>({...p,grade_level:e.target.value}))} placeholder="e.g. Grade 5" style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
+          </div>
+          <button onClick={createUser} disabled={createUserSaving} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",cursor:"pointer",background:`linear-gradient(135deg,${C.gold},${C.amber})`,color:C.bg,fontSize:14,fontFamily:"'Nunito',sans-serif",fontWeight:800,marginTop:14,opacity:createUserSaving?0.6:1}}>{createUserSaving?"Creating...":"Create User"}</button>
+        </div>
       </div>)}
     </>)}
     {tab==="Coupons"&&(<>

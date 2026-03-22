@@ -229,6 +229,41 @@ router.put('/settings', async (req, res) => {
   }
 });
 
+// ─── POST /api/admin/users ───────────────────────────────────────────────────
+router.post('/users', async (req, res) => {
+  const { name, email, phone, password, role, country, grade_level } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email and password are required' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+  const validRoles = ['student', 'teacher', 'parent', 'admin', 'super_admin'];
+  const userRole = validRoles.includes(role) ? role : 'student';
+
+  // Only super_admin can create admin or super_admin users
+  if ((userRole === 'admin' || userRole === 'super_admin') && req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Only super admins can create admin users' });
+  }
+
+  try {
+    // Check if email already exists
+    const existing = await db.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (existing.rows.length > 0) return res.status(409).json({ error: 'Email already registered' });
+
+    const hash = await bcrypt.hash(password, 12);
+    const { rows } = await db.query(
+      `INSERT INTO users (name, email, phone, password_hash, role, country, grade_level, is_active, email_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, true)
+       RETURNING id, name, email, phone, role, is_active, created_at`,
+      [name, email, phone || null, hash, userRole, country || 'KE', grade_level || null]
+    );
+
+    logger.info(`Admin ${req.user.id} created user ${rows[0].id} (${userRole})`);
+    res.status(201).json({ user: rows[0] });
+  } catch (err) {
+    logger.error('Create user error:', err.message);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
 // ─── POST /api/admin/users/:id/reset-password ────────────────────────────────
 router.post('/users/:id/reset-password', async (req, res) => {
   try {
@@ -276,7 +311,16 @@ router.put('/users/:id/role', async (req, res) => {
   const { role } = req.body;
   const validRoles = ['student', 'teacher', 'parent', 'admin', 'super_admin'];
   if (!validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+
+  // Only super_admin can assign admin or super_admin roles
+  if ((role === 'admin' || role === 'super_admin') && req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Only super admins can assign admin roles' });
+  }
+
   try {
+    // Prevent demoting yourself
+    if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot change your own role' });
+
     const { rows } = await db.query(
       'UPDATE users SET role = $1 WHERE id = $2 RETURNING id, name, role',
       [role, req.params.id]
