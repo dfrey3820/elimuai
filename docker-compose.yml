@@ -61,7 +61,7 @@ services:
       REDIS_URL: redis://redis:6379
       QUEUE_HMAC_SECRET: dev_hmac_secret_change_in_production_64chars_minimum
       MPESA_ENVIRONMENT: sandbox
-      MPESA_CALLBACK_BASE_URL: https://pay.elimuai.africa
+      MPESA_CALLBACK_BASE_URL: https://malipo.elimuai.africa
       MPESA_ADMIN_API_KEY: dev_mpesa_admin_key_change_in_production
     depends_on:
       redis:
