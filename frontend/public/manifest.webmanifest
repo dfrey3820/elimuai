@@ -1,0 +1,17 @@
+{
+  "name": "ElimuAI",
+  "short_name": "ElimuAI",
+  "description": "AI-powered learning for East Africa.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08100C",
+  "theme_color": "#08100C",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

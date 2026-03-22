@@ -1,0 +1,13 @@
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+node_modules
+frontend/node_modules
+backend/node_modules
+logs
+frontend/dist
+backend/dist
+.env
+backend/.env
+frontend/.env

@@ -1,13 +1,18 @@
 // ── users.js ──────────────────────────────────────────────────────────────────
 const express = require('express');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const db = require('../config/database');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { getTrialConfig } = require('../services/settingsService');
+const { sendSMS } = require('../services/smsService');
+const logger = require('../config/logger');
 
 const usersRouter = express.Router();
 
 usersRouter.get('/profile', authenticate, async (req, res) => {
   const { rows } = await db.query(
-    'SELECT id,name,email,phone,role,plan,plan_expires,country,language,grade_level,curriculum,avatar_url,streak_days,total_xp,school_id FROM users WHERE id=$1',
+    'SELECT id,name,email,phone,role,plan,plan_expires,country,language,grade_level,curriculum,avatar_url,streak_days,total_xp,school_id,trial_expires FROM users WHERE id=$1',
     [req.user.id]
   );
   res.json({ user: rows[0] });
@@ -158,6 +163,115 @@ curriculumRouter.get('/offline-lessons', async (req, res) => {
     content: lang === 'sw' ? (r.content_sw || r.content) : r.content,
   }));
   res.json({ lessons });
+});
+
+// ─── ONBOARDING ROUTES ────────────────────────────────────────────────────────
+
+// Helper: create onboarded user with temp password and send login details
+const onboardUser = async (creatorId, { name, email, phone, role, gradeLevel, schoolId, country, language, curriculum }) => {
+  const trialCfg = await getTrialConfig();
+  const tempPassword = crypto.randomBytes(4).toString('hex'); // 8 char password
+  const passwordHash = await bcrypt.hash(tempPassword, 12);
+
+  const { rows } = await db.query(
+    `INSERT INTO users (name, email, phone, password_hash, role, country, language, grade_level, school_id, curriculum, trial_expires)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW() + ($11 || ' days')::INTERVAL)
+     RETURNING id, name, email, phone, role`,
+    [name, email || null, phone || null, passwordHash, role, country || 'KE', language || 'en', gradeLevel || null, schoolId || null, curriculum || 'CBC', String(trialCfg.trialDays)]
+  );
+  const user = rows[0];
+
+  // Send login details via SMS or email
+  const loginId = email || phone;
+  if (phone) {
+    await sendSMS(phone, `ElimuAI: Your account is ready!\nLogin: ${loginId}\nPassword: ${tempPassword}\nStart learning at elimuai.africa`).catch(() => {});
+  }
+
+  logger.info(`User ${creatorId} onboarded ${role} ${user.id} (${name})`);
+  return { ...user, tempPassword };
+};
+
+// School admin adds a teacher (max 40 per school)
+schoolsRouter.post('/:id/teachers', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+  const schoolId = req.params.id;
+  const { name, email, phone, subject } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (!email && !phone) return res.status(400).json({ error: 'Email or phone required' });
+  try {
+    // Enforce 40-teacher limit per school
+    const { rows: countRows } = await db.query(
+      "SELECT COUNT(*) FROM users WHERE school_id = $1 AND role = 'teacher'",
+      [schoolId]
+    );
+    if (parseInt(countRows[0].count) >= 40) {
+      return res.status(400).json({ error: 'Maximum of 40 teachers per school reached. Contact support to increase your limit.' });
+    }
+    const user = await onboardUser(req.user.id, {
+      name, email, phone, role: 'teacher', schoolId,
+      country: req.user.country, language: req.user.language, curriculum: req.user.curriculum,
+    });
+    res.status(201).json({ teacher: user });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Email or phone already registered' });
+    logger.error('Onboard teacher error:', err.message);
+    res.status(500).json({ error: 'Failed to add teacher' });
+  }
+});
+
+// Teacher adds students (teacher or school admin)
+usersRouter.post('/onboard-students', authenticate, requireRole('teacher', 'admin', 'super_admin'), async (req, res) => {
+  const { students } = req.body; // Array of { name, email?, phone?, gradeLevel? }
+  if (!Array.isArray(students) || !students.length) return res.status(400).json({ error: 'Provide an array of students' });
+  if (students.length > 50) return res.status(400).json({ error: 'Max 50 students at a time' });
+  const results = [];
+  for (const s of students) {
+    if (!s.name) { results.push({ name: s.name, error: 'Name required' }); continue; }
+    if (!s.email && !s.phone) { results.push({ name: s.name, error: 'Email or phone required' }); continue; }
+    try {
+      const user = await onboardUser(req.user.id, {
+        name: s.name, email: s.email, phone: s.phone, role: 'student',
+        gradeLevel: s.gradeLevel, schoolId: req.user.school_id,
+        country: req.user.country, language: req.user.language, curriculum: req.user.curriculum,
+      });
+      results.push({ name: s.name, id: user.id, success: true, tempPassword: user.tempPassword });
+    } catch (err) {
+      results.push({ name: s.name, error: err.code === '23505' ? 'Already registered' : 'Failed' });
+    }
+  }
+  res.json({ results });
+});
+
+// Parent adds a child
+usersRouter.post('/onboard-child', authenticate, requireRole('parent'), async (req, res) => {
+  const { name, email, phone, gradeLevel } = req.body;
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (!email && !phone) return res.status(400).json({ error: 'Email or phone required' });
+  try {
+    const child = await onboardUser(req.user.id, {
+      name, email, phone, role: 'student', gradeLevel,
+      country: req.user.country, language: req.user.language, curriculum: req.user.curriculum,
+    });
+    // Link parent-child
+    await db.query(
+      'INSERT INTO parent_children (parent_id, child_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+      [req.user.id, child.id]
+    );
+    res.status(201).json({ child });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Email or phone already registered' });
+    logger.error('Onboard child error:', err.message);
+    res.status(500).json({ error: 'Failed to add child' });
+  }
+});
+
+// Get teacher's students
+usersRouter.get('/my-students', authenticate, requireRole('teacher', 'admin', 'super_admin'), async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT id, name, email, phone, grade_level, streak_days, total_xp, last_login, is_active
+     FROM users WHERE school_id = $1 AND role = 'student' ORDER BY name`,
+    [req.user.school_id]
+  );
+  res.json({ students: rows });
 });
 
 module.exports = { usersRouter, schoolsRouter, examsRouter, reportsRouter, curriculumRouter };

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ElimuAI">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#EDB942" />
+      <stop offset="1" stop-color="#C8880A" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#08100C" />
+  <circle cx="256" cy="256" r="170" fill="url(#gold)" />
+  <circle cx="256" cy="256" r="140" fill="#0F1810" />
+  <text x="256" y="300" text-anchor="middle" font-size="190" font-family="Nunito, Arial, sans-serif" font-weight="900" fill="#EDB942">E</text>
+</svg>

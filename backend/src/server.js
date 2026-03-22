@@ -1,10 +1,11 @@
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { createClient } = require('redis');
 const cron = require('node-cron');
-require('dotenv').config();
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const logger = require('./config/logger');
 const db = require('./config/database');
@@ -15,15 +16,23 @@ const aiRoutes        = require('./routes/ai');
 const progressRoutes  = require('./routes/progress');
 const leaderboardRoutes = require('./routes/leaderboard');
 const paymentRoutes   = require('./routes/payments');
+const adminRoutes     = require('./routes/admin');
+const couponRoutes    = require('./routes/coupons');
 const { usersRouter, schoolsRouter, examsRouter, reportsRouter, curriculumRouter } = require('./routes/index');
 
 // ─── Cron Jobs ────────────────────────────────────────────────────────────────
 const { sendWeeklyReports }  = require('./services/reportService');
 const { updateLeaderboards } = require('./services/leaderboardService');
 
+// ─── Payment Queue ────────────────────────────────────────────────────────────
+const { onPaymentResult, startResultWorker } = require('./services/paymentQueue');
+const { handlePaymentResult } = require('./services/paymentResultHandler');
+
 const app = express();
 
 // ─── Security & Middleware ───────────────────────────────────────────────────
+// Behind Nginx/ALB: trust first proxy so rate-limiter sees real client IPs.
+app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL,
@@ -80,6 +89,8 @@ app.use('/api/payments',    paymentRoutes);
 app.use('/api/schools',     schoolsRouter);
 app.use('/api/reports',     reportsRouter);
 app.use('/api/curriculum',  curriculumRouter);
+app.use('/api/admin',       adminRoutes);
+app.use('/api/coupons',     couponRoutes);
 
 // ─── Error Handler ────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
@@ -111,9 +122,14 @@ app.listen(PORT, async () => {
     await db.query('SELECT 1');
     logger.info(`✅ Database connected`);
   } catch (err) {
-    logger.error('Database connection failed:', err.message);
+    logger.error('Database connection failed', { error: err.message, stack: err.stack });
   }
   logger.info(`🚀 ElimuAI API running on port ${PORT} [${process.env.NODE_ENV}]`);
+
+  // Start payment result queue worker
+  onPaymentResult(handlePaymentResult);
+  startResultWorker();
+  logger.info('Payment result queue worker started');
 });
 
 module.exports = app;

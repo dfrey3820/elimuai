@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const { v4: uuidv4 } = require('uuid');
 const db      = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { getTrialConfig } = require('../services/settingsService');
 const logger  = require('../config/logger');
 
 const router = express.Router();
@@ -15,27 +16,58 @@ const generateTokens = (userId) => {
   return { accessToken, refreshToken };
 };
 
+const logAuthError = (label, err) => {
+  logger.error(label, {
+    error: err?.message,
+    code: err?.code,
+    stack: err?.stack,
+  });
+};
+
 // ─── POST /api/auth/register ─────────────────────────────────────────────────
 router.post('/register', [
   body('name').trim().isLength({ min: 2, max: 100 }),
-  body('email').optional().isEmail().normalizeEmail(),
-  body('phone').optional().isMobilePhone(),
+  body('email')
+    .optional({ nullable: true })
+    .isEmail()
+    .normalizeEmail({
+      gmail_remove_dots: false,
+      gmail_remove_subaddress: false,
+      outlookdotcom_remove_subaddress: false,
+      yahoo_remove_subaddress: false,
+      icloud_remove_subaddress: false,
+    }),
+  body('phone').optional({ nullable: true }).isMobilePhone(),
   body('password').isLength({ min: 6 }),
-  body('role').isIn(['student', 'teacher', 'parent']),
+  body('role').isIn(['student', 'teacher', 'parent', 'admin']),
   body('country').optional().isIn(['KE', 'TZ', 'UG']),
   body('language').optional().isIn(['en', 'sw']),
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const { name, email, phone, password, role, country = 'KE', language = 'en', grade_level, school_id, curriculum } = req.body;
+  const { name, email, phone, password, role, country = 'KE', language = 'en', grade_level, school_id, curriculum, school_name } = req.body;
   try {
     const passwordHash = await bcrypt.hash(password, 12);
+    const trialCfg = await getTrialConfig();
+
+    let assignedSchoolId = school_id || null;
+
+    // If registering as school admin, create a school
+    if (role === 'admin' && school_name) {
+      const { rows: schoolRows } = await db.query(
+        `INSERT INTO schools (name, country, curriculum, email, phone, plan, plan_expires)
+         VALUES ($1, $2, $3, $4, $5, 'free', NOW() + ($6 || ' days')::INTERVAL) RETURNING id`,
+        [school_name, country, curriculum || 'CBC', email || null, phone || null, String(trialCfg.trialDays)]
+      );
+      assignedSchoolId = schoolRows[0].id;
+    }
+
     const { rows } = await db.query(
-      `INSERT INTO users (name, email, phone, password_hash, role, country, language, grade_level, school_id, curriculum)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, name, email, phone, role, plan, country, language, grade_level, school_id, total_xp, streak_days`,
-      [name, email || null, phone || null, passwordHash, role, country, language, grade_level || null, school_id || null, curriculum || 'CBC']
+      `INSERT INTO users (name, email, phone, password_hash, role, country, language, grade_level, school_id, curriculum, trial_expires)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW() + ($11 || ' days')::INTERVAL)
+       RETURNING id, name, email, phone, role, plan, plan_expires, country, language, grade_level, school_id, total_xp, streak_days, trial_expires`,
+      [name, email || null, phone || null, passwordHash, role, country, language, grade_level || null, assignedSchoolId, curriculum || 'CBC', String(trialCfg.trialDays)]
     );
     const user = rows[0];
     const { accessToken, refreshToken } = generateTokens(user.id);
@@ -45,7 +77,7 @@ router.post('/register', [
     res.status(201).json({ user, accessToken, refreshToken });
   } catch (err) {
     if (err.code === '23505') return res.status(409).json({ error: 'Email or phone already registered' });
-    logger.error('Register error:', err.message);
+    logAuthError('Register error', err);
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -58,7 +90,7 @@ router.post('/login', [
   const { identifier, password } = req.body;
   try {
     const { rows } = await db.query(
-      `SELECT id, name, email, phone, password_hash, role, plan, plan_expires, country, language, school_id, grade_level, curriculum, total_xp, streak_days, is_active
+      `SELECT id, name, email, phone, password_hash, role, plan, plan_expires, country, language, school_id, grade_level, curriculum, total_xp, streak_days, is_active, trial_expires
        FROM users WHERE (email = $1 OR phone = $1) AND is_active = TRUE`,
       [identifier]
     );
@@ -73,7 +105,7 @@ router.post('/login', [
     delete user.password_hash;
     res.json({ user, accessToken, refreshToken });
   } catch (err) {
-    logger.error('Login error:', err.message);
+    logAuthError('Login error', err);
     res.status(500).json({ error: 'Login failed' });
   }
 });

@@ -1,5 +1,6 @@
 const db = require('../config/database');
 const logger = require('../config/logger');
+const { getLeaderboardColumns } = require('./leaderboardColumns');
 
 // Recalculate ranks for all leaderboard entries
 const updateLeaderboards = async () => {
@@ -7,6 +8,12 @@ const updateLeaderboards = async () => {
   const periods = ['weekly', 'monthly', 'all_time'];
 
   try {
+    const cols = await getLeaderboardColumns();
+    const orderParts = ['xp DESC'];
+    if (cols.streak) orderParts.push('streak DESC');
+    if (cols.tests_taken) orderParts.push('tests_taken DESC');
+    const orderBy = orderParts.join(', ');
+
     for (const scope of scopes) {
       for (const period of periods) {
         // Update ranks using window function
@@ -17,7 +24,7 @@ const updateLeaderboards = async () => {
             SELECT id,
               ROW_NUMBER() OVER (
                 PARTITION BY scope, COALESCE(scope_id::text, ''), period, period_key
-                ORDER BY xp DESC, streak DESC, tests_taken DESC
+                ORDER BY ${orderBy}
               ) AS new_rank
             FROM leaderboard_entries
             WHERE scope = $1 AND period = $2

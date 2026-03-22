@@ -27,6 +27,7 @@ services:
       PORT: 5000
       FRONTEND_URL: ${FRONTEND_URL}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_SSL: ${DATABASE_SSL}
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -56,7 +57,7 @@ services:
     image: ${FRONTEND_IMAGE}
     container_name: elimuai_frontend
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       - backend
     restart: always

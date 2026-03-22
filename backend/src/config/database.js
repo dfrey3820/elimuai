@@ -1,9 +1,13 @@
 const { Pool } = require('pg');
 const logger = require('./logger');
 
+const sslEnabled =
+  String(process.env.DATABASE_SSL || '').toLowerCase() === 'true' ||
+  String(process.env.PGSSLMODE || '').toLowerCase() === 'require';
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  ssl: sslEnabled ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,

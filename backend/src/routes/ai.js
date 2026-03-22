@@ -8,6 +8,23 @@ const logger = require('../config/logger');
 const router = express.Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+const logAiError = (label, err) => {
+  const details = {
+    error: err?.message,
+    name: err?.name,
+    status: err?.status,
+    code: err?.code,
+    type: err?.type,
+  };
+  if (err?.response) {
+    details.response_status = err.response.status || err.response.statusCode;
+    details.response = err.response.data || err.response.body || err.response;
+  }
+  if (err?.error) details.sdk_error = err.error;
+  if (err?.stack) details.stack = err.stack;
+  logger.error(label, details);
+};
+
 // Language prompt fragments
 const LANG = {
   en: {
@@ -39,6 +56,11 @@ router.post('/tutor', authenticate, async (req, res) => {
   const L = LANG[lang];
 
   try {
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'Messages are required' });
+    }
+    if (!subject) return res.status(400).json({ error: 'Subject is required' });
+
     await checkAiQuota(user.id, user.plan);
 
     const curriculumCtx = getCurriculumContext(user.curriculum, user.country, user.grade_level);
@@ -79,7 +101,7 @@ ${lang === 'sw' ? 'IMPORTANT: Respond entirely in Kiswahili.' : ''}`;
     if (err.message === 'QUOTA_EXCEEDED') {
       return res.status(402).json({ error: lang === 'sw' ? 'Kiwango chako kimeisha. Boresha mpango wako.' : 'Daily AI limit reached. Upgrade your plan.', upgrade: true });
     }
-    logger.error('AI tutor error:', err.message);
+    logAiError('AI tutor error', err);
     res.status(500).json({ error: 'AI request failed' });
   }
 });
@@ -120,7 +142,7 @@ Use simple language with East African context examples.`;
 
   } catch (err) {
     if (err.message === 'QUOTA_EXCEEDED') return res.status(402).json({ error: 'Quota exceeded', upgrade: true });
-    logger.error('AI homework error:', err.message);
+    logAiError('AI homework error', err);
     res.status(500).json({ error: 'AI request failed' });
   }
 });
@@ -152,7 +174,7 @@ ${lang === 'sw' ? 'Write all questions, options, and explanations in Kiswahili.'
     res.json({ questions });
 
   } catch (err) {
-    logger.error('Generate questions error:', err.message);
+    logAiError('Generate questions error', err);
     res.status(500).json({ error: 'Failed to generate questions' });
   }
 });
@@ -175,6 +197,7 @@ router.post('/school-insights', authenticate, async (req, res) => {
     });
     res.json({ insights: response.content[0]?.text || '' });
   } catch (err) {
+    logAiError('School insights error', err);
     res.status(500).json({ error: 'Failed to generate insights' });
   }
 });
