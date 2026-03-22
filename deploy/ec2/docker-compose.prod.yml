@@ -32,13 +32,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL}
-      MPESA_ENVIRONMENT: ${MPESA_ENVIRONMENT}
-      MPESA_CONSUMER_KEY: ${MPESA_CONSUMER_KEY}
-      MPESA_CONSUMER_SECRET: ${MPESA_CONSUMER_SECRET}
-      MPESA_PASSKEY: ${MPESA_PASSKEY}
-      MPESA_SHORTCODE: ${MPESA_SHORTCODE}
-      MPESA_BASE_URL: ${MPESA_BASE_URL}
-      MPESA_CALLBACK_URL: ${MPESA_CALLBACK_URL}
+      QUEUE_HMAC_SECRET: ${QUEUE_HMAC_SECRET}
       SENDGRID_API_KEY: ${SENDGRID_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME}
@@ -50,6 +44,23 @@ services:
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
     depends_on:
       - postgres
+      - redis
+    restart: always
+
+  mpesa-service:
+    image: ${MPESA_IMAGE}
+    container_name: elimuai_mpesa
+    ports:
+      - "5002:5002"
+    environment:
+      NODE_ENV: production
+      PORT: 5002
+      REDIS_URL: redis://redis:6379
+      QUEUE_HMAC_SECRET: ${QUEUE_HMAC_SECRET}
+      MPESA_ENVIRONMENT: ${MPESA_ENVIRONMENT}
+      MPESA_CALLBACK_BASE_URL: ${MPESA_CALLBACK_BASE_URL}
+      MPESA_ADMIN_API_KEY: ${MPESA_ADMIN_API_KEY}
+    depends_on:
       - redis
     restart: always
 
