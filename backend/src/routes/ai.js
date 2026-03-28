@@ -7,6 +7,7 @@ const logger = require('../config/logger');
 
 const router = express.Router();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const AI_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514';
 
 const logAiError = (label, err) => {
   const details = {
@@ -73,7 +74,7 @@ Keep responses concise and engaging. Use numbered steps for explanations.
 ${lang === 'sw' ? 'IMPORTANT: Respond entirely in Kiswahili.' : ''}`;
 
     const response = await anthropic.messages.create({
-      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514',
+      model: AI_MODEL,
       max_tokens: 1000,
       system: systemPrompt,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
@@ -130,7 +131,7 @@ Use simple language with East African context examples.`;
                        : `Question: ${question}\n\nStudent's answer: ${studentAnswer}\n\nPlease check my work.`);
 
     const response = await anthropic.messages.create({
-      model: process.env.ANTHROPIC_MODEL,
+      model: AI_MODEL,
       max_tokens: 1000,
       system: systemPrompt,
       messages: [{ role: 'user', content }],
@@ -162,7 +163,7 @@ Return ONLY a valid JSON array, no markdown, no extra text:
 ${lang === 'sw' ? 'Write all questions, options, and explanations in Kiswahili.' : ''}`;
 
     const response = await anthropic.messages.create({
-      model: process.env.ANTHROPIC_MODEL,
+      model: AI_MODEL,
       max_tokens: 2000,
       system: systemPrompt,
       messages: [{ role: 'user', content: `Generate ${count} ${subject} exam questions for ${gradeLevel}, ${curriculumCtx} style, similar to ${year} past paper.` }],
@@ -190,7 +191,7 @@ router.post('/school-insights', authenticate, async (req, res) => {
 
   try {
     const response = await anthropic.messages.create({
-      model: process.env.ANTHROPIC_MODEL,
+      model: AI_MODEL,
       max_tokens: 800,
       system: systemPrompt,
       messages: [{ role: 'user', content: `Analyze class data and give recommendations: ${JSON.stringify(classData)}` }],
