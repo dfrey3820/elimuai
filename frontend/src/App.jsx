@@ -1257,6 +1257,10 @@ function SchoolAdmin({lang,user,onLogout}){
 
         {settingsTab==="billing"&&(<>
           <SecTitle>Trial & Billing Plans</SecTitle>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",background:`${C.dim}55`,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+            <div><p style={{color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",fontWeight:800,margin:0}}>Billing System</p><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",margin:"2px 0 0"}}>Enable or disable the payment/subscription gate for users</p></div>
+            <div onClick={()=>setSettings(p=>({...p,billing_enabled:p.billing_enabled==="false"?"true":"false"}))} style={{width:44,height:24,borderRadius:12,background:settings.billing_enabled==="false"?C.dim:C.green,cursor:"pointer",position:"relative",transition:"background 0.2s"}}><div style={{width:20,height:20,borderRadius:10,background:"#fff",position:"absolute",top:2,left:settings.billing_enabled==="false"?2:22,transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)"}}/></div>
+          </div>
           <div style={{marginBottom:10}}><p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>Free Trial Days</p><input value={settings.trial_days||""} onChange={e=>setSettings(p=>({...p,trial_days:e.target.value}))} placeholder="e.g. 7" type="number" style={{width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box"}}/></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
             {[{role:"school",label:"🏫 School",ak:"school_subscription_amount",dk:"school_subscription_days"},{role:"teacher",label:"👨‍🏫 Teacher",ak:"teacher_subscription_amount",dk:"teacher_subscription_days"},{role:"parent",label:"👨‍👩‍👧 Parent",ak:"parent_subscription_amount",dk:"parent_subscription_days"},{role:"student",label:"🎒 Student",ak:"student_subscription_amount",dk:"student_subscription_days"}].map(p=>(<div key={p.role} style={{background:`${C.dim}55`,borderRadius:10,padding:10}}>
@@ -1692,7 +1696,9 @@ export default function ElimuAI(){
   const isTrialExpired=user&&user.trial_expires&&new Date(user.trial_expires)<new Date();
   const hasPaidPlan=user&&user.plan&&user.plan!=="free"&&user.plan_expires&&new Date(user.plan_expires)>new Date();
   const isExempt=role==="admin"||role==="teacher";
-  const mustPay=user&&isTrialExpired&&!hasPaidPlan&&!isExempt;
+  const [billingEnabled,setBillingEnabled]=useState(true);
+  useEffect(()=>{apiGet("/api/payments/subscription-info").then(d=>{if(d&&typeof d.billingEnabled!=="undefined")setBillingEnabled(d.billingEnabled);}).catch(()=>{});},[user]);
+  const mustPay=billingEnabled&&user&&isTrialExpired&&!hasPaidPlan&&!isExempt;
 
   const handlePaymentDone=()=>{
     // Refresh user profile to get updated plan

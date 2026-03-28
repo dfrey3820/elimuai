@@ -208,6 +208,7 @@ router.put('/settings', async (req, res) => {
     'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass',
     'smtp_from_name', 'smtp_from_email',
     'billing_quarterly_discount', 'billing_semi_annual_discount', 'billing_annual_discount',
+    'billing_enabled',
   ];
   try {
     const updates = req.body;

@@ -3,7 +3,7 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const db = require('../config/database');
 const { authenticate } = require('../middleware/auth');
-const { getTrialConfig } = require('../services/settingsService');
+const { getTrialConfig, getSetting } = require('../services/settingsService');
 const { calculateCyclePrice, getAllCyclePrices, createInvoice, markInvoicePaid, getUserInvoices, generateInvoicePDF } = require('../services/invoiceService');
 const { sendInvoiceEmail, sendPaymentConfirmation } = require('../services/emailService');
 const { enqueuePaymentRequest } = require('../services/paymentQueue');
@@ -21,7 +21,8 @@ router.get('/subscription-info', async (req, res) => {
     for (const role of roles) {
       pricing[role] = await getAllCyclePrices(role);
     }
-    res.json({ trialDays: cfg.trialDays, plans: cfg.plans, pricing, currency: 'KES' });
+    const billingEnabled = (await getSetting('billing_enabled')) !== 'false'; // enabled by default
+    res.json({ trialDays: cfg.trialDays, plans: cfg.plans, pricing, currency: 'KES', billingEnabled });
   } catch (err) {
     logger.error('subscription-info error:', err.message);
     res.status(500).json({ error: 'Failed to load subscription info' });
