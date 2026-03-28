@@ -1621,12 +1621,17 @@ export default function ElimuAI(){
   const [user,setUser]=useState(null);
   const [authOpen,setAuthOpen]=useState(false);
   const [authMode,setAuthMode]=useState("login");
+  const [billingEnabled,setBillingEnabled]=useState(true);
 
   useEffect(()=>{
     let alive=true;
     if(!hasAuthToken()) return;
     apiGet("/api/users/profile").then(d=>{if(alive)setUser(d?.user||null);}).catch(()=>{});
     return()=>{alive=false;};
+  },[]);
+
+  useEffect(()=>{
+    apiGet("/api/payments/subscription-info").then(d=>{if(typeof d?.billingEnabled!=="undefined")setBillingEnabled(d.billingEnabled);}).catch(()=>{});
   },[]);
 
   useEffect(()=>{
@@ -1696,8 +1701,6 @@ export default function ElimuAI(){
   const isTrialExpired=user&&user.trial_expires&&new Date(user.trial_expires)<new Date();
   const hasPaidPlan=user&&user.plan&&user.plan!=="free"&&user.plan_expires&&new Date(user.plan_expires)>new Date();
   const isExempt=role==="admin"||role==="teacher";
-  const [billingEnabled,setBillingEnabled]=useState(true);
-  useEffect(()=>{apiGet("/api/payments/subscription-info").then(d=>{if(d&&typeof d.billingEnabled!=="undefined")setBillingEnabled(d.billingEnabled);}).catch(()=>{});},[user]);
   const mustPay=billingEnabled&&user&&isTrialExpired&&!hasPaidPlan&&!isExempt;
 
   const handlePaymentDone=()=>{
