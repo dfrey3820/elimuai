@@ -267,23 +267,33 @@ router.post('/users', async (req, res) => {
 // ─── POST /api/admin/users/:id/reset-password ────────────────────────────────
 router.post('/users/:id/reset-password', async (req, res) => {
   try {
+    // Only super_admin can change passwords
+    if (req.user.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Only super admins can reset passwords' });
+    }
+
     const { rows } = await db.query('SELECT id, name, email, phone FROM users WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     const user = rows[0];
 
-    // Generate temporary password
-    const tempPassword = crypto.randomBytes(4).toString('hex');
-    const hash = await bcrypt.hash(tempPassword, 12);
+    const { newPassword } = req.body;
+    // Use provided password or generate a random one
+    const password = newPassword && newPassword.length >= 8 ? newPassword : crypto.randomBytes(4).toString('hex');
+    if (newPassword && newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    const hash = await bcrypt.hash(password, 12);
 
     await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, user.id]);
 
-    // Send via SMS if phone exists
-    if (user.phone) {
-      await sendSMS(user.phone, `ElimuAI: Your password has been reset. New password: ${tempPassword} — Please change it after login.`);
+    // Send via SMS if phone exists and password was auto-generated
+    if (user.phone && !newPassword) {
+      await sendSMS(user.phone, `ElimuAI: Your password has been reset. New password: ${password} — Please change it after login.`);
     }
 
     logger.info(`Admin ${req.user.id} reset password for user ${user.id}`);
-    res.json({ success: true, message: `Password reset. ${user.phone ? 'SMS sent.' : 'No phone on file.'}`, tempPassword });
+    const msg = newPassword ? 'Password changed successfully.' : `Password reset. ${user.phone ? 'SMS sent.' : 'No phone on file.'}`;
+    res.json({ success: true, message: msg, ...(!newPassword && { tempPassword: password }) });
   } catch (err) {
     logger.error('Password reset error:', err.message);
     res.status(500).json({ error: 'Failed to reset password' });

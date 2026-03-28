@@ -1001,6 +1001,7 @@ function SchoolAdmin({lang,user,onLogout}){
   const [settings,setSettings]=useState({});const [settingsLoading,setSettingsLoading]=useState(false);const [settingsSaved,setSettingsSaved]=useState(false);const [settingsTab,setSettingsTab]=useState("mpesa");
   // User management state
   const [adminUsers,setAdminUsers]=useState([]);const [usersTotal,setUsersTotal]=useState(0);const [usersPage,setUsersPage]=useState(1);const [usersRoleFilter,setUsersRoleFilter]=useState("");const [resetMsg,setResetMsg]=useState("");const [usersLoading,setUsersLoading]=useState(false);
+  const [showResetPw,setShowResetPw]=useState(null);const [resetPwInput,setResetPwInput]=useState("");const [resetPwSaving,setResetPwSaving]=useState(false);
   const [showCreateUser,setShowCreateUser]=useState(false);const [createUserForm,setCreateUserForm]=useState({name:"",email:"",phone:"",password:"",role:"student",country:"KE",grade_level:""});const [createUserMsg,setCreateUserMsg]=useState("");const [createUserSaving,setCreateUserSaving]=useState(false);
   // Coupon management state
   const [coupons,setCoupons]=useState([]);const [couponsTotal,setCouponsTotal]=useState(0);const [couponsPage,setCouponsPage]=useState(1);const [couponsLoading,setCouponsLoading]=useState(false);
@@ -1048,9 +1049,14 @@ function SchoolAdmin({lang,user,onLogout}){
       setSettingsSaved(true);setTimeout(()=>setSettingsSaved(false),3000);
     }catch{}
   };
-  const resetPassword=async(uid)=>{
-    setResetMsg("");
-    try{const d=await apiPost(`/api/admin/users/${uid}/reset-password`,{});setResetMsg(d?.message||"Password reset");}catch(e){setResetMsg(e?.message||"Failed");}
+  const resetPassword=async(uid,newPassword)=>{
+    setResetMsg("");setResetPwSaving(true);
+    try{
+      const body=newPassword?{newPassword}:{};
+      const d=await apiPost(`/api/admin/users/${uid}/reset-password`,body);
+      setResetMsg(d?.message||(d?.tempPassword?`Password reset to: ${d.tempPassword}`:"Password changed"));
+      setShowResetPw(null);setResetPwInput("");
+    }catch(e){setResetMsg(e?.message||"Failed");}finally{setResetPwSaving(false);}
   };
   const toggleActive=async(uid)=>{
     try{
@@ -1312,13 +1318,23 @@ function SchoolAdmin({lang,user,onLogout}){
             {["student","teacher","parent","admin","super_admin"].map(r=>(<option key={r} value={r}>{r}</option>))}
           </select>
           <button onClick={()=>toggleActive(u.id)} style={{padding:"4px 10px",borderRadius:8,border:`1px solid ${u.is_active?C.red:C.green}44`,background:`${u.is_active?C.red:C.green}11`,color:u.is_active?C.red:C.green,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,cursor:"pointer"}}>{u.is_active?"Deactivate":"Activate"}</button>
-          <button onClick={()=>resetPassword(u.id)} style={{padding:"4px 10px",borderRadius:8,border:`1px solid ${C.amber}44`,background:`${C.amber}11`,color:C.amber,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,cursor:"pointer"}}>🔑 Reset Password</button>
+          <button onClick={()=>{setShowResetPw(u);setResetPwInput("");setResetMsg("");}} style={{padding:"4px 10px",borderRadius:8,border:`1px solid ${C.amber}44`,background:`${C.amber}11`,color:C.amber,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,cursor:"pointer"}}>🔑 Change Password</button>
         </div>
       </Card>))}
       {!usersLoading&&usersTotal>20&&(<div style={{display:"flex",justifyContent:"center",gap:10,marginTop:10}}>
         <button disabled={usersPage<=1} onClick={()=>setUsersPage(p=>p-1)} style={{padding:"6px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:11,cursor:"pointer",opacity:usersPage<=1?0.4:1}}>← Prev</button>
         <span style={{color:C.muted,fontSize:11,fontFamily:"'Nunito',sans-serif",alignSelf:"center"}}>Page {usersPage}</span>
         <button disabled={usersPage*20>=usersTotal} onClick={()=>setUsersPage(p=>p+1)} style={{padding:"6px 14px",borderRadius:10,border:`1px solid ${C.border}`,background:C.card,color:C.text,fontSize:11,cursor:"pointer",opacity:usersPage*20>=usersTotal?0.4:1}}>Next →</button>
+      </div>)}
+      {/* Change Password Modal */}
+      {showResetPw&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+        <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:22,width:"100%",maxWidth:380}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:14}}><h3 style={{color:C.text,fontFamily:"'Playfair Display',serif",fontWeight:900,margin:0}}>Change Password</h3><button onClick={()=>setShowResetPw(null)} style={{background:"none",border:"none",color:C.muted,fontSize:22,cursor:"pointer"}}>×</button></div>
+          <p style={{color:C.muted,fontSize:11,fontFamily:"'Nunito',sans-serif",margin:"0 0 12px"}}>User: <strong style={{color:C.text}}>{showResetPw.name}</strong> ({showResetPw.email})</p>
+          <p style={{color:C.muted,fontSize:10,fontFamily:"'Nunito',sans-serif",fontWeight:700,margin:"0 0 4px"}}>New Password *</p>
+          <input type="password" value={resetPwInput} onChange={e=>setResetPwInput(e.target.value)} placeholder="Min 8 characters" style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",color:C.text,fontSize:13,fontFamily:"'Nunito',sans-serif",outline:"none",boxSizing:"border-box",marginBottom:12}}/>
+          <button onClick={()=>{if(resetPwInput.length<8){setResetMsg("Password must be at least 8 characters");return;}resetPassword(showResetPw.id,resetPwInput);}} disabled={resetPwSaving} style={{width:"100%",padding:"12px",borderRadius:12,border:"none",cursor:"pointer",background:`linear-gradient(135deg,${C.gold},${C.amber})`,color:C.bg,fontSize:14,fontFamily:"'Nunito',sans-serif",fontWeight:800,opacity:resetPwSaving?0.6:1}}>{resetPwSaving?"Saving...":"Set New Password"}</button>
+        </div>
       </div>)}
       {/* Create User Modal */}
       {showCreateUser&&(<div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20,overflowY:"auto"}}>
