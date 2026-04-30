@@ -64,7 +64,7 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
-          source: "deploy/ec2/docker-compose.prod.yml,deploy/ec2/deploy.sh,deploy/ec2/schema.sql"
+          source: "deploy/ec2/docker-compose.prod.yml,deploy/ec2/deploy.sh,deploy/ec2/schema.sql,deploy/ec2/migrate.sql"
           target: "~/elimuai-deploy"
           strip_components: 2
 
