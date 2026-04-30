@@ -48,8 +48,10 @@ services:
     restart: always
 
   mpesa-service:
-    image: ${MPESA_IMAGE}
+    image: ${MPESA_IMAGE:-ghcr.io/placeholder/none}
     container_name: elimuai_mpesa
+    profiles:
+      - mpesa
     ports:
       - "5002:5002"
     environment:
