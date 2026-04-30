@@ -79,3 +79,20 @@ html { scroll-behavior: smooth; }
 /* Remove default button styles */
 button { font-family: 'Nunito', sans-serif; }
 input, textarea, select { font-family: 'Nunito', sans-serif; }
+
+/* ─── BASE RESPONSIVE ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+img, video { max-width: 100%; height: auto; }
+body { overflow-x: hidden; -webkit-text-size-adjust: 100%; }
+
+/* ─── RESPONSIVE BREAKPOINTS ────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .landing-section { padding-left: 16px !important; padding-right: 16px !important; }
+  .hero-stats { gap: 12px !important; margin-top: 24px !important; }
+  .footer-grid { grid-template-columns: 1fr 1fr !important; gap: 20px !important; }
+}
+
+@media (max-width: 480px) {
+  .footer-grid { grid-template-columns: 1fr !important; }
+  .hero-stats { flex-direction: column !important; align-items: flex-start !important; }
+}

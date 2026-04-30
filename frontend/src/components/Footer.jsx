@@ -56,10 +56,10 @@ export default function Footer({ lang }) {
         margin: "0 auto",
       }}>
         {/* Top section */}
-        <div style={{
+        <div className="footer-grid" style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 40,
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))",
+          gap: "clamp(20px, 4vw, 40px)",
           marginBottom: 48,
         }}>
           {/* Brand column */}

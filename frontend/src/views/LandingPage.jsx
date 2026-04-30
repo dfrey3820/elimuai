@@ -67,8 +67,8 @@ export default function LandingPage({ lang }) {
         />
         <div style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-          gap: 24,
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))",
+          gap: "clamp(12px, 3vw, 24px)",
         }} className="stagger">
           {features.map((f, i) => (
             <div
@@ -144,8 +144,8 @@ export default function LandingPage({ lang }) {
           />
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-            gap: 32,
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(260px, 100%), 1fr))",
+            gap: "clamp(16px, 3vw, 32px)",
           }}>
             {steps.map((s, i) => (
               <div key={s.num} style={{ textAlign: "center", position: "relative" }}>
@@ -221,11 +221,11 @@ export default function LandingPage({ lang }) {
               key={r.titleKey}
               style={{
                 display: "flex",
-                flexDirection: i % 2 === 0 ? "row" : "row-reverse",
-                gap: 40,
+                flexDirection: "row",
+                gap: "clamp(20px, 3vw, 40px)",
                 alignItems: "center",
                 flexWrap: "wrap",
-                padding: 32,
+                padding: "clamp(16px, 3vw, 32px)",
                 background: r.bg,
                 borderRadius: 24,
                 border: `1px solid ${r.color}20`,
@@ -270,7 +270,7 @@ export default function LandingPage({ lang }) {
                 </p>
                 <div style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(min(140px, 100%), 1fr))",
                   gap: 8,
                   marginBottom: 16,
                 }}>
@@ -336,7 +336,7 @@ export default function LandingPage({ lang }) {
           </div>
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(280px, 100%), 1fr))",
             gap: 24,
           }}>
             {testimonials.map((tm) => (
@@ -399,7 +399,7 @@ export default function LandingPage({ lang }) {
         />
         <div style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+          gridTemplateColumns: "repeat(auto-fill, minmax(min(250px, 100%), 1fr))",
           gap: 24,
         }}>
           {PLANS.map((p) => (

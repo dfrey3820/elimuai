@@ -32,7 +32,7 @@ const slides = [
     ctaTo: "/#pricing",
     gradient: "linear-gradient(135deg, #4C1D0F 0%, #EA580C 50%, #F97316 100%)",
     decorEmoji: ["🇰🇪", "🇹🇿", "🇺🇬", "💚"],
-    image: "https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=600&h=600&fit=crop&crop=faces",
+    image: "/images/teacher.jpg",
     imageAlt: "Young students using smartphones for learning",
   },
 ];
@@ -116,18 +116,18 @@ export default function HeroSlider({ lang }) {
       <div style={{
         maxWidth: 1200,
         margin: "0 auto",
-        padding: "120px 24px 80px",
+        padding: "120px 20px 60px",
         width: "100%",
         position: "relative",
         zIndex: 1,
         display: "flex",
         alignItems: "center",
-        gap: 60,
+        gap: "clamp(24px, 4vw, 60px)",
         flexWrap: "wrap",
       }}>
         {/* Text side */}
         <div style={{
-          flex: "1 1 480px",
+          flex: "1 1 280px",
           opacity: isAnimating ? 0 : 1,
           transform: isAnimating ? "translateY(20px)" : "translateY(0)",
           transition: "all 0.5s ease",
@@ -270,10 +270,12 @@ export default function HeroSlider({ lang }) {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
+          width: "100%",
         }}>
           <div style={{
-            width: "clamp(300px, 38vw, 500px)",
-            height: "clamp(300px, 38vw, 500px)",
+            width: "clamp(220px, 80vw, 500px)",
+            height: "clamp(220px, 80vw, 500px)",
+            maxWidth: "100%",
             borderRadius: 24,
             overflow: "hidden",
             boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
