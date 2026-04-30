@@ -70,7 +70,9 @@ services:
     image: ${FRONTEND_IMAGE}
     container_name: elimuai_frontend
     ports:
-      - "8080:80"
+      - "8080:3000"
+    environment:
+      API_BACKEND_URL: http://backend:5000
     depends_on:
       - backend
     restart: always
