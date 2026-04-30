@@ -42,7 +42,7 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/elimuai-backend:latest
             ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/elimuai-backend:${{ github.sha }}
@@ -53,7 +53,7 @@ jobs:
           context: .
           file: ./frontend/Dockerfile.ec2
           push: true
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/elimuai-frontend:latest
             ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/elimuai-frontend:${{ github.sha }}
