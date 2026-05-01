@@ -322,7 +322,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
     : isTeacher
     ? [{ l: "Overview", icon: BarChart3 }, { l: "Students", icon: GraduationCap }, { l: "Rankings", icon: Trophy }, { l: "AI Insights", icon: Zap }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }]
     : isStudent
-    ? [{ l: "Home", icon: Home }, { l: "Tutor", icon: Bot }, { l: "Exams", icon: FileText }, { l: "Rankings", icon: Trophy }, { l: "Progress", icon: BarChart3 }, { l: "Billing", icon: CreditCard }]
+    ? [{ l: "Home", icon: Home }, { l: "Tutor", icon: Bot }, { l: "Exams", icon: FileText }, { l: "Offline Lessons", icon: Download }, { l: "Rankings", icon: Trophy }, { l: "Progress", icon: BarChart3 }, { l: "Billing", icon: CreditCard }]
     : isParent
     ? [{ l: "Overview", icon: BarChart3 }, { l: "Children", icon: Heart }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }]
     : [{ l: "Overview", icon: BarChart3 }, { l: "Teachers", icon: BookOpen }, { l: "Students", icon: GraduationCap }, { l: "Rankings", icon: Trophy }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }];
@@ -1006,6 +1006,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
         {isStudent && tab === "Exams" && <ExamScreen country={country} level={level} lang={lang} user={user} />}
         {isStudent && tab === "Rankings" && <LeaderboardScreen lang={lang} user={user} />}
         {isStudent && tab === "Progress" && <ProgressScreen country={country} level={level} lang={lang} user={user} />}
+        {isStudent && tab === "Offline Lessons" && <OfflineLessonsTab lang={lang} user={user} level={level} />}
 
         {/* PARENT OVERVIEW TAB */}
         {tab === "Overview" && isParent && (<>
@@ -1841,6 +1842,112 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
           </div>
         </>)}
       </div>
+    </div>
+  );
+}
+
+// ─── OFFLINE LESSONS TAB ──────────────────────────────────────────────────────
+function OfflineLessonsTab({ lang, user, level }) {
+  const [lessons, setLessons] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedLesson, setSelectedLesson] = useState(null);
+  const [cachedIds, setCachedIds] = useState([]);
+  const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
+
+  useEffect(() => {
+    // Load cached lesson IDs from localStorage
+    try {
+      const stored = JSON.parse(localStorage.getItem("elimuai_offline_lessons") || "[]");
+      setCachedIds(stored.map((l) => l.id));
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    const fetchLessons = async () => {
+      setLoading(true);
+      try {
+        const data = await apiGet("/api/curriculum/offline-lessons", {
+          level: user?.grade_level || level,
+          curriculum: user?.curriculum || null,
+          lang,
+        });
+        setLessons(data?.lessons || []);
+        // Auto-cache all fetched lessons for offline use
+        if (data?.lessons?.length) {
+          try { localStorage.setItem("elimuai_offline_lessons", JSON.stringify(data.lessons)); } catch {}
+          setCachedIds(data.lessons.map((l) => l.id));
+        }
+      } catch {
+        // If offline, load from localStorage
+        try {
+          const stored = JSON.parse(localStorage.getItem("elimuai_offline_lessons") || "[]");
+          setLessons(stored);
+        } catch {}
+      }
+      setLoading(false);
+    };
+    fetchLessons();
+  }, [lang, level, user?.grade_level, user?.curriculum]);
+
+  if (loading) return <Spinner />;
+
+  if (selectedLesson) {
+    return (
+      <div>
+        <button onClick={() => setSelectedLesson(null)} className="flex items-center gap-1.5 text-purple-600 text-xs font-body font-bold bg-transparent border-none cursor-pointer mb-4 hover:text-purple-800 p-0">
+          <ArrowLeft size={14} /> {lang === "sw" ? "Rudi kwa Masomo" : "Back to Lessons"}
+        </button>
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-purple-50 to-indigo-50">
+            <h2 className="text-slate-900 text-lg font-heading font-black m-0">{selectedLesson.title}</h2>
+            {selectedLesson.subjectId && <p className="text-purple-600 text-[11px] font-body font-bold mt-1 mb-0">Subject: {selectedLesson.subjectId} • {selectedLesson.gradeLevel || level}</p>}
+          </div>
+          <div className="p-6 prose prose-sm max-w-none text-slate-700 text-sm font-body leading-relaxed whitespace-pre-wrap">{selectedLesson.content}</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-slate-900 text-lg font-heading font-black m-0">{lang === "sw" ? "Masomo ya Nje ya Mtandao" : "Offline Lessons"}</h2>
+          <p className="text-slate-400 text-xs font-body mt-1 mb-0">{lang === "sw" ? "Masomo yaliyohifadhiwa kwa matumizi bila mtandao" : "Cached lessons available without internet"}</p>
+        </div>
+        <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">
+          <Download size={13} className="text-emerald-600" />
+          <span className="text-emerald-700 text-[10px] font-body font-bold">{cachedIds.length} {lang === "sw" ? "yamehifadhiwa" : "cached"}</span>
+        </div>
+      </div>
+
+      {lessons.length === 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center">
+          <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3"><Download size={24} className="text-slate-300" /></div>
+          <h3 className="text-slate-900 text-sm font-heading font-bold m-0 mb-1">{lang === "sw" ? "Hakuna masomo bado" : "No lessons available yet"}</h3>
+          <p className="text-slate-400 text-xs font-body m-0">{lang === "sw" ? "Masomo yataonekana hapa yatakapowekwa na msimamizi" : "Lessons will appear here once added by your school administrator"}</p>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {lessons.map((lesson) => (
+            <button key={lesson.id} onClick={() => setSelectedLesson(lesson)} className="w-full bg-white rounded-xl shadow-sm border border-slate-100 p-4 cursor-pointer text-left hover:shadow-md hover:border-purple-200 transition-all group">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 group-hover:bg-purple-100 flex items-center justify-center shrink-0 transition-colors">
+                  <BookOpen size={18} className="text-purple-600" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-slate-900 text-sm font-body font-bold m-0 truncate">{lesson.title}</h4>
+                  <p className="text-slate-400 text-[10px] font-body m-0 mt-0.5">{lesson.subjectId && <span className="text-purple-500 font-bold">{lesson.subjectId}</span>}{lesson.gradeLevel && <span className="ml-2">{lesson.gradeLevel}</span>}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {cachedIds.includes(lesson.id) && <span className="bg-emerald-50 text-emerald-600 text-[9px] font-body font-bold px-2 py-0.5 rounded-full border border-emerald-200">{lang === "sw" ? "Imehifadhiwa" : "Cached"}</span>}
+                  <ChevronRight size={14} className="text-slate-300 group-hover:text-purple-500 transition-colors" />
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
