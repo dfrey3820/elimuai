@@ -2,6 +2,7 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LandingPage from "@/views/LandingPage";
+import CookieConsent from "@/components/CookieConsent";
 import { useApp } from "@/context/AppContext";
 
 export default function Home() {
@@ -11,6 +12,7 @@ export default function Home() {
       <Header lang={lang} />
       <LandingPage lang={lang} />
       <Footer lang={lang} />
+      <CookieConsent />
     </>
   );
 }

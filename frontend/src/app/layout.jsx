@@ -1,18 +1,18 @@
-import { Raleway, Roboto } from "next/font/google";
+import { Poppins, Nunito } from "next/font/google";
 import Script from "next/script";
 import { AppProvider } from "@/context/AppContext";
 import "@/styles.css";
 
-const raleway = Raleway({
+const poppins = Poppins({
   subsets: ["latin"],
   weight: ["500", "600", "700", "800", "900"],
   variable: "--font-heading",
   display: "swap",
 });
 
-const roboto = Roboto({
+const nunito = Nunito({
   subsets: ["latin"],
-  weight: ["400", "500", "700", "900"],
+  weight: ["400", "500", "700", "800", "900"],
   variable: "--font-body",
   display: "swap",
 });
@@ -42,9 +42,9 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${raleway.variable} ${roboto.variable}`}>
+    <html lang="en" className={`${poppins.variable} ${nunito.variable}`}>
       <body
-        className={roboto.className}
+        className={nunito.className}
         style={{ margin: 0, padding: 0, background: "#FFFFFF" }}
       >
         <Script

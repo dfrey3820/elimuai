@@ -1,8 +1,7 @@
 "use client";
 import Link from "next/link";
-import { C, font } from "@/theme";
 import { translations } from "@/i18n/translations";
-import { GraduationCap, Smartphone, CreditCard } from "lucide-react";
+import { GraduationCap } from "lucide-react";
 
 export default function Footer({ lang }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
@@ -30,9 +29,9 @@ export default function Footer({ lang }) {
     {
       title: lang === "sw" ? "Mitaala" : "Curricula",
       links: [
-        { label: "🇰🇪 Kenya CBC", to: "/register" },
-        { label: "🇹🇿 Tanzania TIE", to: "/register" },
-        { label: "🇺🇬 Uganda NCDC", to: "/register" },
+        { label: "\u{1F1F0}\u{1F1EA} Kenya CBC", to: "/register" },
+        { label: "\u{1F1F9}\u{1F1FF} Tanzania TIE", to: "/register" },
+        { label: "\u{1F1FA}\u{1F1EC} Uganda NCDC", to: "/register" },
       ],
     },
     {
@@ -41,70 +40,31 @@ export default function Footer({ lang }) {
         { label: lang === "sw" ? "Kutuhusu" : "About Us", to: "/" },
         { label: lang === "sw" ? "Bei" : "Pricing", to: "/#pricing" },
         { label: lang === "sw" ? "Wasiliana nasi" : "Contact", to: "/" },
+        { label: lang === "sw" ? "Masharti ya Huduma" : "Terms of Service", to: "/terms" },
+        { label: lang === "sw" ? "Sera ya Faragha" : "Privacy Policy", to: "/privacy" },
+        { label: lang === "sw" ? "Taarifa ya Kuki" : "Cookie Notice", to: "/cookies" },
       ],
     },
   ];
 
   return (
-    <footer style={{
-      background: "linear-gradient(180deg, #0F172A 0%, #1E293B 100%)",
-      color: C.white,
-      padding: "60px 24px 30px",
-    }}>
-      <div style={{
-        maxWidth: 1200,
-        margin: "0 auto",
-      }}>
-        {/* Top section */}
-        <div className="footer-grid" style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))",
-          gap: "clamp(20px, 4vw, 40px)",
-          marginBottom: 48,
-        }}>
-          {/* Brand column */}
+    <footer className="bg-gradient-dark text-white px-6 pt-16 pb-8">
+      <div className="max-w-[1200px] mx-auto">
+        {/* Top grid */}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(180px,100%),1fr))] gap-[clamp(20px,4vw,40px)] mb-12">
+          {/* Brand */}
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-              <GraduationCap size={32} color={C.white} />
+            <div className="flex items-center gap-2.5 mb-4">
+              <GraduationCap size={32} className="text-white" />
               <div>
-                <span style={{
-                  color: C.white,
-                  fontSize: 24,
-                  fontFamily: font.heading,
-                  fontWeight: 900,
-                }}>
-                  ElimuAI
-                </span>
-                <span style={{
-                  display: "block",
-                  color: "rgba(255,255,255,0.5)",
-                  fontSize: 9,
-                  fontFamily: font.body,
-                  fontWeight: 700,
-                  letterSpacing: 2.5,
-                }}>
-                  {t("motto")}
-                </span>
+                <span className="text-white text-2xl font-heading font-black">ElimuAI</span>
+                <span className="block text-white/50 text-[9px] font-body font-bold tracking-[2.5px]">{t("motto")}</span>
               </div>
             </div>
-            <p style={{
-              color: "rgba(255,255,255,0.6)",
-              fontSize: 14,
-              fontFamily: font.body,
-              lineHeight: 1.7,
-              margin: "0 0 16px",
-              maxWidth: 280,
-            }}>
-              {t("tagline")}
-            </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              {"🇰🇪🇹🇿🇺🇬".match(/\p{Emoji_Presentation}/gu)?.map((f, i) => (
-                <span key={i} style={{
-                  fontSize: 24,
-                  background: "rgba(255,255,255,0.1)",
-                  borderRadius: 10,
-                  padding: "6px 10px",
-                }}>{f}</span>
+            <p className="text-white/60 text-sm font-body leading-relaxed mb-4 max-w-[280px]">{t("tagline")}</p>
+            <div className="flex gap-2">
+              {["\u{1F1F0}\u{1F1EA}", "\u{1F1F9}\u{1F1FF}", "\u{1F1FA}\u{1F1EC}"].map((f, i) => (
+                <span key={i} className="text-2xl bg-white/10 rounded-[10px] px-2.5 py-1.5">{f}</span>
               ))}
             </div>
           </div>
@@ -112,33 +72,9 @@ export default function Footer({ lang }) {
           {/* Link columns */}
           {sections.map((sec) => (
             <div key={sec.title}>
-              <h4 style={{
-                color: C.white,
-                fontSize: 14,
-                fontFamily: font.body,
-                fontWeight: 800,
-                margin: "0 0 16px",
-                letterSpacing: 0.5,
-              }}>
-                {sec.title}
-              </h4>
+              <h4 className="text-white text-sm font-body font-extrabold mb-4 tracking-wide">{sec.title}</h4>
               {sec.links.map((link) => (
-                <Link
-                  key={link.label}
-                  href={link.to}
-                  style={{
-                    display: "block",
-                    color: "rgba(255,255,255,0.55)",
-                    fontSize: 13,
-                    fontFamily: font.body,
-                    fontWeight: 600,
-                    textDecoration: "none",
-                    margin: "0 0 10px",
-                    transition: "color 0.2s",
-                  }}
-                  onMouseEnter={(e) => (e.target.style.color = C.white)}
-                  onMouseLeave={(e) => (e.target.style.color = "rgba(255,255,255,0.55)")}
-                >
+                <Link key={link.label} href={link.to} className="block text-white/55 text-[13px] font-body font-semibold no-underline mb-2.5 hover:text-white transition-colors duration-200">
                   {link.label}
                 </Link>
               ))}
@@ -147,59 +83,22 @@ export default function Footer({ lang }) {
         </div>
 
         {/* Payment methods */}
-        <div style={{
-          borderTop: "1px solid rgba(255,255,255,0.1)",
-          paddingTop: 24,
-          marginBottom: 24,
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 16,
-          justifyContent: "center",
-          alignItems: "center",
-        }}>
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, fontFamily: font.body, fontWeight: 700 }}>
+        <div className="border-t border-white/10 pt-6 mb-6 flex flex-wrap gap-4 justify-center items-center">
+          <span className="text-white/40 text-xs font-body font-bold">
             {lang === "sw" ? "Njia za Malipo:" : "Payment Methods:"}
           </span>
           {["M-Pesa", "Airtel Money", "T-Kash"].map((m) => (
-            <span key={m} style={{
-              background: "rgba(255,255,255,0.08)",
-              borderRadius: 8,
-              padding: "4px 12px",
-              color: "rgba(255,255,255,0.6)",
-              fontSize: 12,
-              fontFamily: font.body,
-              fontWeight: 700,
-            }}>
-              {m}
-            </span>
+            <span key={m} className="bg-white/[0.08] rounded-lg px-3 py-1 text-white/60 text-xs font-body font-bold">{m}</span>
           ))}
         </div>
 
         {/* Bottom bar */}
-        <div style={{
-          borderTop: "1px solid rgba(255,255,255,0.1)",
-          paddingTop: 20,
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-        }}>
-          <p style={{
-            color: "rgba(255,255,255,0.4)",
-            fontSize: 12,
-            fontFamily: font.body,
-            margin: 0,
-          }}>
-            © {year} ElimuAI. {lang === "sw" ? "Haki zote zimehifadhiwa." : "All rights reserved."}
+        <div className="border-t border-white/10 pt-5 flex flex-wrap justify-between items-center gap-3">
+          <p className="text-white/40 text-xs font-body m-0">
+            &copy; {year} ElimuAI. {lang === "sw" ? "Haki zote zimehifadhiwa." : "All rights reserved."}
           </p>
-          <p style={{
-            color: "rgba(255,255,255,0.4)",
-            fontSize: 12,
-            fontFamily: font.body,
-            margin: 0,
-          }}>
-            {lang === "sw" ? "Imetengenezwa kwa ❤️ kwa Afrika Mashariki" : "Made with ❤️ for East Africa"}
+          <p className="text-white/40 text-xs font-body m-0">
+            {lang === "sw" ? "Imetengenezwa kwa \u2764\uFE0F kwa Afrika Mashariki" : "Made with \u2764\uFE0F for East Africa"}
           </p>
         </div>
       </div>

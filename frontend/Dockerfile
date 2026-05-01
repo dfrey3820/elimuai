@@ -1,6 +1,8 @@
 FROM node:20-alpine AS build
 
 WORKDIR /app
+ARG API_BACKEND_URL=http://backend:5000
+ENV API_BACKEND_URL=$API_BACKEND_URL
 COPY package*.json ./
 RUN npm install
 

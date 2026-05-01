@@ -1,21 +1,61 @@
 const jwt = require('jsonwebtoken');
 const db  = require('../config/database');
+const logger = require('../config/logger');
 
-// Verify JWT and attach user to req
+// ─── Role hierarchy (higher index = more privileges) ─────────────────────────
+const ROLE_HIERARCHY = {
+  student:     0,
+  parent:      1,
+  teacher:     2,
+  admin:       3,
+  super_admin: 4,
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const extractToken = (req) => {
+  const header = req.headers.authorization;
+  if (header && header.startsWith('Bearer ')) return header.split(' ')[1];
+  // Also accept token from query param (for PDF downloads etc.)
+  if (req.query.token) return req.query.token;
+  return null;
+};
+
+const decodeAndFetchUser = async (token) => {
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const { rows } = await db.query(
+    `SELECT id, name, email, phone, role, plan, plan_expires, country,
+            language, school_id, grade_level, curriculum, total_xp, streak_days
+       FROM users WHERE id = $1 AND is_active = TRUE`,
+    [decoded.userId]
+  );
+  return { decoded, user: rows[0] || null };
+};
+
+// ─── Core authenticate — verifies JWT + active session ───────────────────────
 const authenticate = async (req, res, next) => {
   try {
-    const header = req.headers.authorization;
-    if (!header || !header.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
+    const token = extractToken(req);
+    if (!token) return res.status(401).json({ error: 'No token provided' });
+
+    const { decoded, user } = await decodeAndFetchUser(token);
+    if (!user) return res.status(401).json({ error: 'User not found or inactive' });
+
+    // If token has a session ID (jti), validate session is active
+    if (decoded.jti) {
+      const { rows: sess } = await db.query(
+        'SELECT id FROM user_sessions WHERE token_jti = $1 AND is_revoked = FALSE AND expires_at > NOW()',
+        [decoded.jti]
+      );
+      if (!sess[0]) {
+        return res.status(401).json({ error: 'Session expired or revoked' });
+      }
+      // Touch last_active (fire-and-forget, don't block the request)
+      db.query('UPDATE user_sessions SET last_active = NOW() WHERE token_jti = $1', [decoded.jti]).catch(() => {});
+      req.sessionId = sess[0].id;
+      req.tokenJti  = decoded.jti;
     }
-    const token = header.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const { rows } = await db.query(
-      'SELECT id, name, email, phone, role, plan, plan_expires, country, language, school_id, grade_level, curriculum, total_xp, streak_days FROM users WHERE id = $1 AND is_active = TRUE',
-      [decoded.userId]
-    );
-    if (!rows[0]) return res.status(401).json({ error: 'User not found or inactive' });
-    req.user = rows[0];
+
+    req.user = user;
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') return res.status(401).json({ error: 'Token expired' });
@@ -23,21 +63,22 @@ const authenticate = async (req, res, next) => {
   }
 };
 
-// Optional auth — attaches user if token present, continues either way
+// ─── Optional auth — attaches user if token present, continues either way ────
 const optionalAuth = async (req, res, next) => {
   try {
-    const header = req.headers.authorization;
-    if (header && header.startsWith('Bearer ')) {
-      const token = header.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const { rows } = await db.query('SELECT id, role, plan, country, language, school_id FROM users WHERE id = $1', [decoded.userId]);
-      if (rows[0]) req.user = rows[0];
+    const token = extractToken(req);
+    if (token) {
+      const { decoded, user } = await decodeAndFetchUser(token);
+      if (user) {
+        req.user = user;
+        if (decoded.jti) req.tokenJti = decoded.jti;
+      }
     }
   } catch (_) {}
   next();
 };
 
-// Role guard
+// ─── Role guard — accepts explicit roles or minimum role level ───────────────
 const requireRole = (...roles) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
   if (!roles.includes(req.user.role)) {
@@ -46,7 +87,34 @@ const requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
-// Plan guard — checks if user has required plan
+// ─── Minimum role — uses hierarchy (e.g. requireMinRole('teacher') lets admin/super_admin through) ─
+const requireMinRole = (minRole) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  const userLevel = ROLE_HIERARCHY[req.user.role] ?? -1;
+  const minLevel  = ROLE_HIERARCHY[minRole] ?? 99;
+  if (userLevel < minLevel) {
+    return res.status(403).json({ error: `Access denied. Minimum role: ${minRole}` });
+  }
+  next();
+};
+
+// ─── School scoping — ensures user can only access their own school data ─────
+const requireSchool = (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  // super_admin can access any school
+  if (req.user.role === 'super_admin') return next();
+  if (!req.user.school_id) {
+    return res.status(403).json({ error: 'No school assigned to your account' });
+  }
+  // If route has a :schoolId param, verify it matches
+  const paramSchoolId = req.params.schoolId || req.params.id;
+  if (paramSchoolId && paramSchoolId !== req.user.school_id) {
+    return res.status(403).json({ error: 'Access denied to this school' });
+  }
+  next();
+};
+
+// ─── Plan guard — checks if user has required plan ───────────────────────────
 const requirePlan = (...plans) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ error: 'Authentication required' });
   const planOrder = ['free', 'student', 'family', 'school', 'enterprise'];
@@ -64,4 +132,21 @@ const requirePlan = (...plans) => (req, res, next) => {
   next();
 };
 
-module.exports = { authenticate, optionalAuth, requireRole, requirePlan };
+// ─── Active session required — rejects requests without a tracked session ────
+const requireSession = (req, res, next) => {
+  if (!req.tokenJti || !req.sessionId) {
+    return res.status(401).json({ error: 'Active session required. Please log in again.' });
+  }
+  next();
+};
+
+module.exports = {
+  authenticate,
+  optionalAuth,
+  requireRole,
+  requireMinRole,
+  requireSchool,
+  requirePlan,
+  requireSession,
+  ROLE_HIERARCHY,
+};

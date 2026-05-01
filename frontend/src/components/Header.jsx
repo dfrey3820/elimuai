@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { C, font } from "@/theme";
 import { hasAuthToken, clearTokens } from "@/utils/auth";
 import { translations } from "@/i18n/translations";
 import { GraduationCap, Languages, LogOut, LayoutDashboard, ArrowRight, X } from "lucide-react";
@@ -51,164 +50,94 @@ export default function Header({ lang, setLang, user, onLogout }) {
 
   return (
     <>
-      <header style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1000,
-        background: scrolled ? "rgba(255,255,255,0.97)" : "transparent",
-        backdropFilter: scrolled ? "blur(12px)" : "none",
-        borderBottom: scrolled ? `1px solid ${C.border}` : "none",
-        transition: "all 0.3s ease",
-        padding: scrolled ? "8px 0" : "14px 0",
-      }}>
-        <div style={{
-          maxWidth: 1200,
-          margin: "0 auto",
-          padding: "0 24px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}>
+      <header className={`fixed top-0 inset-x-0 z-[1000] transition-all duration-300 ${
+        scrolled ? "bg-white/[0.97] backdrop-blur-md border-b border-slate-200 py-2" : "bg-transparent py-3.5"
+      }`}>
+        <div className="max-w-[1200px] mx-auto px-6 flex justify-between items-center">
           {/* Logo */}
-          <Link href="/" style={{ textDecoration: "none", display: "flex", alignItems: "center", gap: 10 }}>
-            <GraduationCap size={28} style={{ color: scrolled ? C.primary : C.white, transition: "color 0.3s" }} />
+          <Link href="/" className="no-underline flex items-center gap-2.5">
+            <GraduationCap size={28} className={`transition-colors duration-300 ${scrolled ? "text-purple-600" : "text-white"}`} />
             <div>
-              <span style={{
-                color: scrolled ? C.primary : C.white,
-                fontSize: 22,
-                fontFamily: font.heading,
-                fontWeight: 800,
-                letterSpacing: 0.5,
-                transition: "color 0.3s",
-              }}>
+              <span className={`text-[22px] font-heading font-extrabold tracking-wide transition-colors duration-300 ${scrolled ? "text-purple-600" : "text-white"}`}>
                 ElimuAI
               </span>
-              <span style={{
-                display: "block",
-                color: scrolled ? C.textMuted : "rgba(255,255,255,0.7)",
-                fontSize: 9,
-                fontFamily: font.body,
-                fontWeight: 700,
-                letterSpacing: 2.5,
-                transition: "color 0.3s",
-              }}>
+              <span className={`block text-[9px] font-body font-bold tracking-[2.5px] transition-colors duration-300 ${scrolled ? "text-slate-400" : "text-white/70"}`}>
                 {t("motto")}
               </span>
             </div>
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="desktop-nav" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <nav className="hidden lg:flex items-center gap-1">
             {navLinks.map((link) => (
               <button
                 key={link.to}
                 onClick={() => handleNavClick(link.to)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  color: scrolled ? C.textSecondary : "rgba(255,255,255,0.85)",
-                  fontSize: 14,
-                  fontFamily: font.body,
-                  fontWeight: 700,
-                  padding: "8px 14px",
-                  borderRadius: 8,
-                  transition: "all 0.2s",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.color = scrolled ? C.primary : C.white;
-                  e.currentTarget.style.background = scrolled ? `${C.primary}08` : "rgba(255,255,255,0.1)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.color = scrolled ? C.textSecondary : "rgba(255,255,255,0.85)";
-                  e.currentTarget.style.background = "transparent";
-                }}
+                className={`bg-transparent border-none cursor-pointer text-sm font-body font-bold px-3.5 py-2 rounded-lg transition-all duration-200 ${
+                  scrolled ? "text-slate-600 hover:text-purple-600 hover:bg-purple-600/5" : "text-white/85 hover:text-white hover:bg-white/10"
+                }`}
               >
                 {link.label}
               </button>
             ))}
 
-            <div style={{ width: 1, height: 24, background: scrolled ? C.border : "rgba(255,255,255,0.2)", margin: "0 8px" }} />
+            <div className={`w-px h-6 mx-2 ${scrolled ? "bg-slate-200" : "bg-white/20"}`} />
 
-            <div style={{ display: "flex", gap: 4, marginRight: 4 }}>
-              {["🇰🇪", "🇹🇿", "🇺🇬"].map((f, i) => (
-                <span key={i} style={{ fontSize: 16, opacity: 0.85 }}>{f}</span>
+            <div className="flex gap-1 mr-1">
+              {["\u{1F1F0}\u{1F1EA}", "\u{1F1F9}\u{1F1FF}", "\u{1F1FA}\u{1F1EC}"].map((f, i) => (
+                <span key={i} className="text-base opacity-85">{f}</span>
               ))}
             </div>
 
             <button
               onClick={() => setLang?.((l) => (l === "en" ? "sw" : "en"))}
-              style={{
-                background: scrolled ? `${C.teal}15` : "rgba(255,255,255,0.15)",
-                border: `1px solid ${scrolled ? `${C.teal}30` : "rgba(255,255,255,0.2)"}`,
-                borderRadius: 10,
-                padding: "6px 14px",
-                cursor: "pointer",
-                color: scrolled ? C.teal : C.white,
-                fontSize: 12,
-                fontFamily: font.body,
-                fontWeight: 800,
-                transition: "all 0.3s",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
+              className={`rounded-[10px] px-3.5 py-1.5 cursor-pointer text-xs font-body font-extrabold transition-all duration-300 flex items-center gap-1.5 ${
+                scrolled
+                  ? "bg-teal-500/[0.08] border border-teal-500/20 text-teal-500"
+                  : "bg-white/15 border border-white/20 text-white"
+              }`}
             >
               <Languages size={14} />
               {lang === "en" ? "Kiswahili" : "English"}
             </button>
 
             {isLoggedIn ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={() => router.push("/dashboard")} style={{
-                  background: C.gradientPrimary, border: "none", borderRadius: 10,
-                  padding: "8px 18px", cursor: "pointer", color: C.white,
-                  fontSize: 13, fontFamily: font.body, fontWeight: 800,
-                  display: "flex", alignItems: "center", gap: 6,
-                }}><LayoutDashboard size={14} /> {t("dashboard")}</button>
-                <button onClick={handleLogout} style={{
-                  background: scrolled ? `${C.error}12` : "rgba(255,255,255,0.1)",
-                  border: `1px solid ${scrolled ? `${C.error}30` : "rgba(255,255,255,0.2)"}`,
-                  borderRadius: 10, padding: "8px 14px", cursor: "pointer",
-                  color: scrolled ? C.error : "#FCA5A5", fontSize: 12,
-                  fontFamily: font.body, fontWeight: 800, transition: "all 0.3s",
-                  display: "flex", alignItems: "center", gap: 6,
-                }}><LogOut size={14} /> {t("sign_out")}</button>
+              <div className="flex gap-2 items-center">
+                <button onClick={() => router.push("/dashboard")} className="bg-gradient-primary border-none rounded-[10px] px-[18px] py-2 cursor-pointer text-white text-[13px] font-body font-extrabold flex items-center gap-1.5">
+                  <LayoutDashboard size={14} /> {t("dashboard")}
+                </button>
+                <button onClick={handleLogout} className={`rounded-[10px] px-3.5 py-2 cursor-pointer text-xs font-body font-extrabold transition-all duration-300 flex items-center gap-1.5 ${
+                  scrolled ? "bg-red-500/[0.07] border border-red-500/20 text-red-500" : "bg-white/10 border border-white/20 text-red-300"
+                }`}>
+                  <LogOut size={14} /> {t("sign_out")}
+                </button>
               </div>
             ) : (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <button onClick={() => router.push("/login")} style={{
-                  background: "transparent",
-                  border: `2px solid ${scrolled ? C.primary : "rgba(255,255,255,0.4)"}`,
-                  borderRadius: 10, padding: "8px 18px", cursor: "pointer",
-                  color: scrolled ? C.primary : C.white, fontSize: 13,
-                  fontFamily: font.body, fontWeight: 800, transition: "all 0.3s",
-                }}>{t("sign_in")}</button>
-                <button onClick={() => router.push("/register")} style={{
-                  background: scrolled ? C.gradientPrimary : "rgba(255,255,255,0.95)",
-                  border: "none", borderRadius: 10, padding: "8px 18px",
-                  cursor: "pointer", color: scrolled ? C.white : C.primary,
-                  fontSize: 13, fontFamily: font.body, fontWeight: 800,
-                  boxShadow: C.shadowMd, transition: "all 0.3s",
-                  display: "flex", alignItems: "center", gap: 6,
-                }}>{t("sign_up")} <ArrowRight size={14} /></button>
+              <div className="flex gap-2 items-center">
+                <button onClick={() => router.push("/login")} className={`bg-transparent rounded-[10px] px-[18px] py-2 cursor-pointer text-[13px] font-body font-extrabold transition-all duration-300 ${
+                  scrolled ? "border-2 border-purple-600 text-purple-600" : "border-2 border-white/40 text-white"
+                }`}>
+                  {t("sign_in")}
+                </button>
+                <button onClick={() => router.push("/register")} className={`border-none rounded-[10px] px-[18px] py-2 cursor-pointer text-[13px] font-body font-extrabold shadow-md transition-all duration-300 flex items-center gap-1.5 ${
+                  scrolled ? "bg-gradient-primary text-white" : "bg-white/95 text-purple-600"
+                }`}>
+                  {t("sign_up")} <ArrowRight size={14} />
+                </button>
               </div>
             )}
           </nav>
 
           {/* Mobile hamburger */}
           <button
-            className="mobile-menu-btn"
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label="Toggle menu"
-            style={{ display: "none", background: "transparent", border: "none", cursor: "pointer", padding: 8, zIndex: 1002 }}
+            className="flex lg:hidden bg-transparent border-none cursor-pointer p-2 z-[1002]"
           >
-            <div style={{ width: 24, height: 18, position: "relative", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <span style={{ display: "block", height: 2.5, width: "100%", background: scrolled ? C.text : C.white, borderRadius: 2, transition: "all 0.3s", transform: mobileOpen ? "rotate(45deg) translate(5.5px, 5.5px)" : "none" }} />
-              <span style={{ display: "block", height: 2.5, width: "100%", background: scrolled ? C.text : C.white, borderRadius: 2, transition: "all 0.3s", opacity: mobileOpen ? 0 : 1 }} />
-              <span style={{ display: "block", height: 2.5, width: "100%", background: scrolled ? C.text : C.white, borderRadius: 2, transition: "all 0.3s", transform: mobileOpen ? "rotate(-45deg) translate(6px, -6px)" : "none" }} />
+            <div className="w-6 h-[18px] relative flex flex-col justify-between">
+              <span className={`block h-[2.5px] w-full rounded-sm transition-all duration-300 ${scrolled ? "bg-slate-900" : "bg-white"} ${mobileOpen ? "rotate-45 translate-x-[5.5px] translate-y-[5.5px]" : ""}`} />
+              <span className={`block h-[2.5px] w-full rounded-sm transition-all duration-300 ${scrolled ? "bg-slate-900" : "bg-white"} ${mobileOpen ? "opacity-0" : ""}`} />
+              <span className={`block h-[2.5px] w-full rounded-sm transition-all duration-300 ${scrolled ? "bg-slate-900" : "bg-white"} ${mobileOpen ? "-rotate-45 translate-x-[6px] -translate-y-[6px]" : ""}`} />
             </div>
           </button>
         </div>
@@ -216,92 +145,61 @@ export default function Header({ lang, setLang, user, onLogout }) {
 
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div onClick={() => setMobileOpen(false)} style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
-          zIndex: 998, backdropFilter: "blur(4px)",
-        }} />
+        <div onClick={() => setMobileOpen(false)} className="fixed inset-0 bg-black/50 z-[998] backdrop-blur-sm" />
       )}
 
       {/* Mobile slide-out menu */}
-      <div style={{
-        position: "fixed", top: 0, right: 0, width: "min(320px, 85vw)", height: "100vh",
-        background: C.white, zIndex: 999,
-        transform: mobileOpen ? "translateX(0)" : "translateX(100%)",
-        transition: "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
-        display: "flex", flexDirection: "column",
-        boxShadow: mobileOpen ? "-10px 0 40px rgba(0,0,0,0.15)" : "none",
-        overflowY: "auto",
-      }}>
-        <div style={{ padding: "20px 24px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <GraduationCap size={24} style={{ color: C.primary }} />
-            <span style={{ color: C.primary, fontSize: 20, fontFamily: font.heading, fontWeight: 800 }}>ElimuAI</span>
+      <div className={`fixed top-0 right-0 w-[min(320px,85vw)] h-screen bg-white z-[999] flex flex-col shadow-[-10px_0_40px_rgba(0,0,0,0.15)] overflow-y-auto transition-transform duration-350 ${
+        mobileOpen ? "translate-x-0" : "translate-x-full"
+      }`} style={{ transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)" }}>
+        <div className="px-6 py-5 border-b border-slate-200 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <GraduationCap size={24} className="text-purple-600" />
+            <span className="text-purple-600 text-xl font-heading font-extrabold">ElimuAI</span>
           </div>
-          <button onClick={() => setMobileOpen(false)} style={{
-            background: C.surface, border: "none", borderRadius: 10, width: 36, height: 36,
-            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: C.textSecondary,
-          }}><X size={18} /></button>
+          <button onClick={() => setMobileOpen(false)} className="bg-slate-50 border-none rounded-[10px] w-9 h-9 cursor-pointer flex items-center justify-center text-slate-600">
+            <X size={18} />
+          </button>
         </div>
 
-        <div style={{ padding: "16px 12px", flex: 1 }}>
+        <div className="px-3 py-4 flex-1">
           {navLinks.map((link) => (
-            <button key={link.to} onClick={() => handleNavClick(link.to)} style={{
-              display: "block", width: "100%", textAlign: "left", background: "transparent",
-              border: "none", cursor: "pointer", color: C.text, fontSize: 16,
-              fontFamily: font.body, fontWeight: 700, padding: "14px 16px", borderRadius: 12, transition: "all 0.2s",
-            }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = C.primaryBg; e.currentTarget.style.color = C.primary; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = C.text; }}
-            >{link.label}</button>
+            <button key={link.to} onClick={() => handleNavClick(link.to)} className="block w-full text-left bg-transparent border-none cursor-pointer text-slate-900 text-base font-body font-bold px-4 py-3.5 rounded-xl transition-all duration-200 hover:bg-purple-50 hover:text-purple-600">
+              {link.label}
+            </button>
           ))}
-          <div style={{ display: "flex", gap: 8, padding: "14px 16px" }}>
-            {["🇰🇪", "🇹🇿", "🇺🇬"].map((f, i) => (
-              <span key={i} style={{ fontSize: 22 }}>{f}</span>
+          <div className="flex gap-2 px-4 py-3.5">
+            {["\u{1F1F0}\u{1F1EA}", "\u{1F1F9}\u{1F1FF}", "\u{1F1FA}\u{1F1EC}"].map((f, i) => (
+              <span key={i} className="text-[22px]">{f}</span>
             ))}
           </div>
-          <button onClick={() => setLang?.((l) => (l === "en" ? "sw" : "en"))} style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            width: "calc(100% - 32px)", margin: "0 16px 8px",
-            background: `${C.teal}10`, border: `1px solid ${C.teal}30`, borderRadius: 12,
-            padding: "12px 16px", cursor: "pointer", color: C.teal, fontSize: 14,
-            fontFamily: font.body, fontWeight: 800, textAlign: "center",
-          }}><Languages size={16} /> {lang === "en" ? "Badilisha kwa Kiswahili" : "Switch to English"}</button>
+          <button onClick={() => setLang?.((l) => (l === "en" ? "sw" : "en"))} className="flex items-center justify-center gap-2 w-[calc(100%-32px)] mx-4 mb-2 bg-teal-500/[0.06] border border-teal-500/20 rounded-xl px-4 py-3 cursor-pointer text-teal-500 text-sm font-body font-extrabold">
+            <Languages size={16} /> {lang === "en" ? "Badilisha kwa Kiswahili" : "Switch to English"}
+          </button>
         </div>
 
-        <div style={{ padding: "16px 24px 32px", borderTop: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div className="px-6 py-4 pb-8 border-t border-slate-200 flex flex-col gap-2.5">
           {isLoggedIn ? (
             <>
-              <button onClick={() => { setMobileOpen(false); router.push("/dashboard"); }} style={{
-                background: C.gradientPrimary, border: "none", borderRadius: 12, padding: "14px",
-                cursor: "pointer", color: C.white, fontSize: 15, fontFamily: font.body, fontWeight: 800, textAlign: "center",
-              }}>{t("dashboard")} <ArrowRight size={14} style={{ display: "inline", verticalAlign: "middle" }} /></button>
-              <button onClick={() => { setMobileOpen(false); handleLogout(); }} style={{
-                background: `${C.error}08`, border: `1px solid ${C.error}25`, borderRadius: 12, padding: "14px",
-                cursor: "pointer", color: C.error, fontSize: 14, fontFamily: font.body, fontWeight: 800, textAlign: "center",
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              }}><LogOut size={16} /> {t("sign_out")}</button>
+              <button onClick={() => { setMobileOpen(false); router.push("/dashboard"); }} className="bg-gradient-primary border-none rounded-xl py-3.5 cursor-pointer text-white text-[15px] font-body font-extrabold text-center">
+                {t("dashboard")} <ArrowRight size={14} className="inline align-middle" />
+              </button>
+              <button onClick={() => { setMobileOpen(false); handleLogout(); }} className="bg-red-500/5 border border-red-500/15 rounded-xl py-3.5 cursor-pointer text-red-500 text-sm font-body font-extrabold flex items-center justify-center gap-2">
+                <LogOut size={16} /> {t("sign_out")}
+              </button>
             </>
           ) : (
             <>
-              <button onClick={() => { setMobileOpen(false); router.push("/register"); }} style={{
-                background: C.gradientPrimary, border: "none", borderRadius: 12, padding: "14px",
-                cursor: "pointer", color: C.white, fontSize: 15, fontFamily: font.body, fontWeight: 800, textAlign: "center",
-              }}>{t("sign_up")} <ArrowRight size={14} style={{ display: "inline", verticalAlign: "middle" }} /></button>
-              <button onClick={() => { setMobileOpen(false); router.push("/login"); }} style={{
-                background: "transparent", border: `2px solid ${C.primary}`, borderRadius: 12, padding: "14px",
-                cursor: "pointer", color: C.primary, fontSize: 15, fontFamily: font.body, fontWeight: 800, textAlign: "center",
-              }}>{t("sign_in")}</button>
+              <button onClick={() => { setMobileOpen(false); router.push("/register"); }} className="bg-gradient-primary border-none rounded-xl py-3.5 cursor-pointer text-white text-[15px] font-body font-extrabold text-center">
+                {t("sign_up")} <ArrowRight size={14} className="inline align-middle" />
+              </button>
+              <button onClick={() => { setMobileOpen(false); router.push("/login"); }} className="bg-transparent border-2 border-purple-600 rounded-xl py-3.5 cursor-pointer text-purple-600 text-[15px] font-body font-extrabold text-center">
+                {t("sign_in")}
+              </button>
             </>
           )}
         </div>
       </div>
-
-      <style>{`
-        @media (max-width: 900px) {
-          .desktop-nav { display: none !important; }
-          .mobile-menu-btn { display: flex !important; }
-        }
-      `}</style>
     </>
   );
 }

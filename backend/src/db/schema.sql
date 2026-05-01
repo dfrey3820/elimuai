@@ -61,6 +61,7 @@ CREATE TABLE users (
   phone_verified  BOOLEAN DEFAULT FALSE,
   trial_expires   TIMESTAMP,
   last_login      TIMESTAMP,
+  onboarded       BOOLEAN DEFAULT FALSE,
   created_at      TIMESTAMP DEFAULT NOW(),
   updated_at      TIMESTAMP DEFAULT NOW()
 );
@@ -77,7 +78,7 @@ CREATE TABLE parent_children (
 -- ─── TEACHER-CLASS LINKS ──────────────────────────────────────────────────────
 CREATE TABLE classes (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  school_id   UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  school_id   UUID REFERENCES schools(id) ON DELETE CASCADE,
   teacher_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        VARCHAR(100) NOT NULL,
   grade_level VARCHAR(50),
@@ -458,3 +459,19 @@ COMMENT ON TABLE users IS 'Core users table — students, teachers, parents, adm
 COMMENT ON TABLE leaderboard_entries IS 'Cached leaderboard data, refreshed hourly by cron';
 COMMENT ON TABLE ai_sessions IS 'Full AI conversation history per user';
 COMMENT ON TABLE weekly_reports IS 'Auto-generated weekly summaries sent to parents';
+
+-- ─── OTP tokens for email/login verification ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS otp_tokens (
+  id            SERIAL PRIMARY KEY,
+  user_id       UUID REFERENCES users(id) ON DELETE CASCADE,
+  email         VARCHAR(255) NOT NULL,
+  code          VARCHAR(10) NOT NULL,
+  purpose       VARCHAR(30) NOT NULL DEFAULT 'verify_email',
+  verified      BOOLEAN NOT NULL DEFAULT FALSE,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  max_attempts  INTEGER NOT NULL DEFAULT 5,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_otp_tokens_email_purpose ON otp_tokens (email, purpose);
+CREATE INDEX IF NOT EXISTS idx_otp_tokens_expires ON otp_tokens (expires_at);

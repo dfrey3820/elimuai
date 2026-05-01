@@ -18,11 +18,13 @@ const leaderboardRoutes = require('./routes/leaderboard');
 const paymentRoutes   = require('./routes/payments');
 const adminRoutes     = require('./routes/admin');
 const couponRoutes    = require('./routes/coupons');
+const onboardingRoutes = require('./routes/onboarding');
 const { usersRouter, schoolsRouter, examsRouter, reportsRouter, curriculumRouter } = require('./routes/index');
 
 // ─── Cron Jobs ────────────────────────────────────────────────────────────────
 const { sendWeeklyReports }  = require('./services/reportService');
 const { updateLeaderboards } = require('./services/leaderboardService');
+const { checkExpiringSubscriptions, cleanupNotifications, cleanupSessions } = require('./services/subscriptionNotifier');
 
 // ─── Payment Queue ────────────────────────────────────────────────────────────
 const { onPaymentResult, startResultWorker } = require('./services/paymentQueue');
@@ -91,6 +93,7 @@ app.use('/api/reports',     reportsRouter);
 app.use('/api/curriculum',  curriculumRouter);
 app.use('/api/admin',       adminRoutes);
 app.use('/api/coupons',     couponRoutes);
+app.use('/api/onboarding',  onboardingRoutes);
 
 // ─── Error Handler ────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
@@ -114,6 +117,18 @@ cron.schedule('0 7 * * 0', () => {
 cron.schedule('0 * * * *', () => {
   updateLeaderboards().catch(err => logger.error('Leaderboard update failed:', err));
 });
+
+// Every day at 8am EAT — check expiring subscriptions & send notifications
+cron.schedule('0 8 * * *', () => {
+  logger.info('Running subscription expiry notification job...');
+  checkExpiringSubscriptions().catch(err => logger.error('Subscription notification job failed:', err));
+}, { timezone: 'Africa/Nairobi' });
+
+// Every Sunday at midnight EAT — cleanup old notifications & expired sessions
+cron.schedule('0 0 * * 0', () => {
+  cleanupNotifications().catch(err => logger.error('Notification cleanup failed:', err));
+  cleanupSessions().catch(err => logger.error('Session cleanup failed:', err));
+}, { timezone: 'Africa/Nairobi' });
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;

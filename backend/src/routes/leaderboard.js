@@ -156,4 +156,53 @@ router.get('/my-ranks', authenticate, async (req, res) => {
   }
 });
 
+// ─── GET /api/leaderboard/school-rankings ────────────────────────────────────
+// School admin: students & teacher-aggregated rankings
+router.get('/school-rankings', authenticate, async (req, res) => {
+  const user = req.user;
+  if (!user.school_id) return res.status(400).json({ error: 'No school associated' });
+  if (user.role !== 'admin' && user.role !== 'super_admin') return res.status(403).json({ error: 'Admin only' });
+
+  const { period = 'weekly' } = req.query;
+  const periodKey = getPeriodKey(period);
+
+  try {
+    // 1) Top students in school
+    const { rows: studentRankings } = await db.query(
+      `SELECT le.xp, le.streak, le.tests_taken, le.avg_score,
+              u.id, u.name, u.grade_level, u.avatar_url
+       FROM leaderboard_entries le
+       JOIN users u ON u.id = le.user_id
+       WHERE u.school_id = $1 AND u.role = 'student'
+         AND le.scope = 'school' AND le.period = $2 AND le.period_key = $3
+       ORDER BY le.xp DESC LIMIT 100`,
+      [user.school_id, period, periodKey]
+    );
+
+    // 2) Aggregate per teacher: avg XP, avg score, total students, total tests
+    const { rows: teacherRankings } = await db.query(
+      `SELECT t.id AS teacher_id, t.name AS teacher_name,
+              COUNT(DISTINCT le.user_id) AS student_count,
+              COALESCE(SUM(le.xp), 0) AS total_xp,
+              COALESCE(ROUND(AVG(le.xp)), 0) AS avg_xp,
+              COALESCE(ROUND(AVG(le.avg_score), 1), 0) AS avg_score,
+              COALESCE(SUM(le.tests_taken), 0) AS total_tests,
+              COALESCE(ROUND(AVG(le.streak), 1), 0) AS avg_streak
+       FROM users t
+       LEFT JOIN users s ON s.school_id = t.school_id AND s.role = 'student'
+       LEFT JOIN leaderboard_entries le ON le.user_id = s.id
+         AND le.scope = 'school' AND le.period = $2 AND le.period_key = $3
+       WHERE t.school_id = $1 AND t.role = 'teacher'
+       GROUP BY t.id, t.name
+       ORDER BY avg_xp DESC`,
+      [user.school_id, period, periodKey]
+    );
+
+    res.json({ studentRankings, teacherRankings, period, periodKey });
+  } catch (err) {
+    logger.error('School rankings error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch school rankings' });
+  }
+});
+
 module.exports = router;

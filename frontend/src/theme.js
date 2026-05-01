@@ -1,10 +1,10 @@
 // ─── BRIGHT & ENGAGING THEME ──────────────────────────────────────────────────
 export const C = {
-  // Primary - Vibrant Blue
-  primary: "#2563EB",
-  primaryLight: "#3B82F6",
-  primaryDark: "#1D4ED8",
-  primaryBg: "#EFF6FF",
+  // Primary - Purple
+  primary: "#9333EA",
+  primaryLight: "#A855F7",
+  primaryDark: "#7E22CE",
+  primaryBg: "#FAF5FF",
 
   // Secondary - Warm Orange
   secondary: "#F97316",
@@ -67,16 +67,16 @@ export const C = {
   shadowLg: "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
   shadowXl: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
 
-  // Gradients
-  gradientPrimary: "linear-gradient(135deg, #2563EB, #7C3AED)",
-  gradientSecondary: "linear-gradient(135deg, #F97316, #EF4444)",
-  gradientAccent: "linear-gradient(135deg, #10B981, #14B8A6)",
-  gradientGold: "linear-gradient(135deg, #EAB308, #F97316)",
-  gradientRose: "linear-gradient(135deg, #EC4899, #F43F5E)",
-  gradientSunset: "linear-gradient(135deg, #F97316, #EC4899)",
-  gradientOcean: "linear-gradient(135deg, #3B82F6, #06B6D4)",
-  gradientForest: "linear-gradient(135deg, #10B981, #84CC16)",
-  gradientHero: "linear-gradient(135deg, #1E3A5F 0%, #2563EB 50%, #7C3AED 100%)",
+  // Solid backgrounds (gradients removed)
+  gradientPrimary: "#9333EA",
+  gradientSecondary: "#F97316",
+  gradientAccent: "#10B981",
+  gradientGold: "#EAB308",
+  gradientRose: "#F43F5E",
+  gradientSunset: "#F97316",
+  gradientOcean: "#3B82F6",
+  gradientForest: "#10B981",
+  gradientHero: "#9333EA",
 };
 
 // Font helpers

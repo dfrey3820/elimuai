@@ -41,6 +41,11 @@ services:
       QUEUE_HMAC_SECRET: dev_hmac_secret_change_in_production_64chars_minimum
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       FRONTEND_URL: http://localhost:3000
+      MAILTRAP_API_URL: https://sandbox.api.mailtrap.io
+      MAILTRAP_API_TOKEN: d3843c18539bd2304c3bf8b4d758e668
+      MAILTRAP_INBOX_ID: 4046638
+      SMTP_FROM_NAME: ElimuAI
+      SMTP_FROM_EMAIL: noreply@elimuai.com
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,9 +81,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        API_BACKEND_URL: http://backend:5000
     container_name: elimuai_frontend
     ports:
-      - "8080:80"
+      - "3000:3000"
+    environment:
+      API_BACKEND_URL: http://backend:5000
     restart: unless-stopped
     depends_on:
       - backend

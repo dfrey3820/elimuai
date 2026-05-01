@@ -19,7 +19,7 @@ usersRouter.get('/profile', authenticate, async (req, res) => {
 });
 
 usersRouter.patch('/profile', authenticate, async (req, res) => {
-  const allowed = ['name','language','grade_level','curriculum','avatar_url'];
+  const allowed = ['name','email','phone','language','grade_level','curriculum','avatar_url'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'No valid fields' });
   const setClauses = updates.map(([k], i) => `${k}=$${i+2}`).join(',');

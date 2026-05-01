@@ -77,7 +77,7 @@ CREATE TABLE parent_children (
 -- ─── TEACHER-CLASS LINKS ──────────────────────────────────────────────────────
 CREATE TABLE classes (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  school_id   UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  school_id   UUID REFERENCES schools(id) ON DELETE CASCADE,
   teacher_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name        VARCHAR(100) NOT NULL,
   grade_level VARCHAR(50),

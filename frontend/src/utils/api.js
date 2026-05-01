@@ -49,3 +49,21 @@ export async function apiGet(path, params) {
   }
   return data;
 }
+
+export async function apiDelete(path, body) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    credentials: "include",
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const isJson = r.headers.get("content-type")?.includes("application/json");
+  const data = isJson ? await r.json() : null;
+  if (!r.ok) {
+    const err = new Error(data?.error || `Request failed (${r.status})`);
+    err.status = r.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}

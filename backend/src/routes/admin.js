@@ -137,6 +137,82 @@ router.get('/sms-logs', async (req, res) => {
   }
 });
 
+// ─── GET /api/admin/users/:id ─────────────────────────────────────────────────
+router.get('/users/:id', async (req, res) => {
+  try {
+    const { rows: [user] } = await db.query(
+      `SELECT id, name, email, phone, role, plan, plan_expires, country, language, grade_level, curriculum, avatar_url,
+              streak_days, total_xp, is_active, email_verified, phone_verified, trial_expires, last_login, school_id, created_at
+       FROM users WHERE id=$1`, [req.params.id]
+    );
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const queries = [
+      db.query(
+        `SELECT pl.activity_type, pl.score, pl.duration_mins, pl.xp_earned, pl.logged_date, s.name as subject_name
+         FROM progress_logs pl LEFT JOIN subjects s ON s.id=pl.subject_id
+         WHERE pl.user_id=$1 ORDER BY pl.created_at DESC LIMIT 20`, [req.params.id]
+      ),
+      db.query(
+        `SELECT id, plan, billing_cycle, amount, currency, method, status, phone_number, mpesa_receipt, created_at, completed_at
+         FROM payments WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.params.id]
+      ),
+      db.query(
+        `SELECT ss.avg_score, ss.attempts, s.name as subject_name
+         FROM subject_scores ss JOIN subjects s ON s.id=ss.subject_id
+         WHERE ss.user_id=$1 ORDER BY ss.avg_score DESC`, [req.params.id]
+      ),
+      db.query(
+        `SELECT id, invoice_number, plan, billing_cycle, amount, currency, status, period_start, period_end, due_date, paid_at, coupon_code, coupon_discount, subtotal, created_at
+         FROM invoices WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.params.id]
+      ),
+      db.query(
+        `SELECT id, type, language, xp_earned, jsonb_array_length(messages) as message_count, created_at, updated_at
+         FROM ai_sessions WHERE user_id=$1 ORDER BY created_at DESC LIMIT 20`, [req.params.id]
+      ),
+      db.query(
+        `SELECT COUNT(*) as total_sessions, COALESCE(SUM(jsonb_array_length(messages)),0) as total_messages, COALESCE(SUM(xp_earned),0) as total_ai_xp
+         FROM ai_sessions WHERE user_id=$1`, [req.params.id]
+      ),
+    ];
+
+    // If user has a school_id, fetch school info + members
+    if (user.school_id) {
+      queries.push(
+        db.query('SELECT id, name, country, county, curriculum, plan, plan_expires, is_active FROM schools WHERE id=$1', [user.school_id]),
+        db.query(
+          `SELECT id, name, email, phone, role, grade_level, total_xp, streak_days, is_active, last_login, created_at
+           FROM users WHERE school_id=$1 AND id != $2 ORDER BY role, name LIMIT 100`,
+          [user.school_id, req.params.id]
+        )
+      );
+    }
+
+    const results = await Promise.all(queries);
+    const [activity, payments, subjects, invoices, aiSessions, aiStats, ...schoolResults] = results;
+
+    const response = {
+      user,
+      activity: activity.rows,
+      payments: payments.rows,
+      subjects: subjects.rows,
+      invoices: invoices.rows,
+      aiSessions: aiSessions.rows,
+      aiStats: aiStats.rows[0] || { total_sessions: 0, total_messages: 0, total_ai_xp: 0 },
+    };
+
+    if (user.school_id && schoolResults.length >= 2) {
+      response.school = schoolResults[0].rows[0] || null;
+      response.schoolMembers = schoolResults[1].rows;
+    }
+
+    res.json(response);
+  } catch (err) {
+    logger.error('Admin user detail error:', err.message);
+    res.status(500).json({ error: 'Failed to load user details' });
+  }
+});
+
 // ─── GET /api/admin/users ────────────────────────────────────────────────────
 router.get('/users', async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page) || 1);
@@ -342,6 +418,102 @@ router.put('/users/:id/role', async (req, res) => {
   } catch (err) {
     logger.error('Change role error:', err.message);
     res.status(500).json({ error: 'Failed to update role' });
+  }
+});
+
+// ─── PUT /api/admin/users/:id/subscription ───────────────────────────────────
+router.put('/users/:id/subscription', async (req, res) => {
+  const { plan, billing_cycle, days } = req.body;
+  const validPlans = ['free', 'basic', 'premium', 'enterprise'];
+  if (!validPlans.includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
+  try {
+    const planExpires = plan === 'free' ? null : `NOW() + INTERVAL '${parseInt(days) || 30} days'`;
+    const { rows } = await db.query(
+      `UPDATE users SET plan=$1, plan_expires=${plan === 'free' ? 'NULL' : planExpires}, updated_at=NOW() WHERE id=$2 RETURNING id, name, plan, plan_expires`,
+      [plan, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    logger.info(`Admin ${req.user.id} updated user ${rows[0].id} subscription to ${plan}`);
+    res.json({ user: rows[0], message: `Subscription updated to ${plan}` });
+  } catch (err) {
+    logger.error('Update subscription error:', err.message);
+    res.status(500).json({ error: 'Failed to update subscription' });
+  }
+});
+
+// ─── DELETE /api/admin/users/:id/subscription ─── Cancel subscription ────────
+router.delete('/users/:id/subscription', async (req, res) => {
+  try {
+    const { rows } = await db.query(
+      `UPDATE users SET plan='free', plan_expires=NULL, updated_at=NOW() WHERE id=$1 RETURNING id, name, plan`,
+      [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    logger.info(`Admin ${req.user.id} cancelled subscription for user ${rows[0].id}`);
+    res.json({ user: rows[0], message: 'Subscription cancelled' });
+  } catch (err) {
+    logger.error('Cancel subscription error:', err.message);
+    res.status(500).json({ error: 'Failed to cancel subscription' });
+  }
+});
+
+// ─── POST /api/admin/users/:id/send-verification ────────────────────────────
+router.post('/users/:id/send-verification', async (req, res) => {
+  const { type } = req.body; // 'email' or 'phone'
+  try {
+    const { rows: [user] } = await db.query('SELECT id, name, email, phone FROM users WHERE id=$1', [req.params.id]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (type === 'email' && !user.email) return res.status(400).json({ error: 'User has no email' });
+    if (type === 'phone' && !user.phone) return res.status(400).json({ error: 'User has no phone number' });
+    // Mark as verified (admin-initiated)
+    const field = type === 'email' ? 'email_verified' : 'phone_verified';
+    await db.query(`UPDATE users SET ${field}=TRUE, updated_at=NOW() WHERE id=$1`, [req.params.id]);
+    logger.info(`Admin ${req.user.id} verified ${type} for user ${user.id}`);
+    res.json({ message: `${type === 'email' ? 'Email' : 'Phone'} marked as verified` });
+  } catch (err) {
+    logger.error('Send verification error:', err.message);
+    res.status(500).json({ error: 'Failed to send verification' });
+  }
+});
+
+// ─── PUT /api/admin/users/:id/2fa ────────────────────────────────────────────
+router.put('/users/:id/2fa', async (req, res) => {
+  const { enabled } = req.body;
+  try {
+    const { rows } = await db.query(
+      `UPDATE users SET email_verified=$1, updated_at=NOW() WHERE id=$2 RETURNING id, name, email_verified`,
+      [!!enabled, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    logger.info(`Admin ${req.user.id} ${enabled ? 'enabled' : 'disabled'} 2FA for user ${rows[0].id}`);
+    res.json({ message: `2FA ${enabled ? 'enabled' : 'disabled'}`, user: rows[0] });
+  } catch (err) {
+    logger.error('Toggle 2FA error:', err.message);
+    res.status(500).json({ error: 'Failed to toggle 2FA' });
+  }
+});
+
+// ─── PUT /api/admin/users/:id/reset-credentials ─────────────────────────────
+router.put('/users/:id/reset-credentials', async (req, res) => {
+  const { email, phone } = req.body;
+  try {
+    const updates = [];
+    const values = [req.params.id];
+    if (email !== undefined) { values.push(email || null); updates.push(`email=$${values.length}`); }
+    if (phone !== undefined) { values.push(phone || null); updates.push(`phone=$${values.length}`); }
+    if (!updates.length) return res.status(400).json({ error: 'No fields to update' });
+    updates.push('updated_at=NOW()');
+    const { rows } = await db.query(
+      `UPDATE users SET ${updates.join(',')} WHERE id=$1 RETURNING id, name, email, phone`,
+      values
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'User not found' });
+    logger.info(`Admin ${req.user.id} reset credentials for user ${rows[0].id}`);
+    res.json({ user: rows[0], message: 'Credentials updated' });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'Email or phone already in use' });
+    logger.error('Reset credentials error:', err.message);
+    res.status(500).json({ error: 'Failed to update credentials' });
   }
 });
 

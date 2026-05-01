@@ -1,52 +1,56 @@
-const nodemailer = require('nodemailer');
 const logger = require('../config/logger');
 const { getSettings } = require('./settingsService');
 
-let transporterCache = null;
-let transporterCacheTime = 0;
-const TRANSPORT_TTL = 300000; // 5 minutes
+const MAILTRAP_API_URL = process.env.MAILTRAP_API_URL || 'https://sandbox.api.mailtrap.io';
+const MAILTRAP_API_TOKEN = process.env.MAILTRAP_API_TOKEN || '';
+const MAILTRAP_INBOX_ID = process.env.MAILTRAP_INBOX_ID || '';
 
-const getTransporter = async () => {
-  if (transporterCache && Date.now() - transporterCacheTime < TRANSPORT_TTL) return transporterCache;
+const getFromInfo = async () => {
   const s = await getSettings();
-  const host = s.smtp_host || process.env.SMTP_HOST || '';
-  const port = parseInt(s.smtp_port || process.env.SMTP_PORT || '587', 10);
-  const user = s.smtp_user || process.env.SMTP_USER || '';
-  const pass = s.smtp_pass || process.env.SMTP_PASS || '';
-  const fromName = s.smtp_from_name || process.env.SMTP_FROM_NAME || 'ElimuAI';
-  const fromEmail = s.smtp_from_email || process.env.SMTP_FROM_EMAIL || user;
-
-  if (!host || !user || !pass) {
-    logger.warn('SMTP not configured — emails will be skipped');
-    return null;
-  }
-
-  transporterCache = {
-    transport: nodemailer.createTransport({
-      host,
-      port,
-      secure: port === 465,
-      auth: { user, pass },
-    }),
-    from: `"${fromName}" <${fromEmail}>`,
+  return {
+    name: s.smtp_from_name || process.env.SMTP_FROM_NAME || 'ElimuAI',
+    email: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || 'noreply@elimuai.com',
   };
-  transporterCacheTime = Date.now();
-  return transporterCache;
 };
 
-const invalidateTransporter = () => { transporterCache = null; };
+const invalidateTransporter = () => {};
 
 /**
- * Send an email. Returns true on success, false on failure.
+ * Send an email via Mailtrap HTTP API. Returns true on success, false on failure.
  */
 const sendEmail = async (to, subject, html, attachments = []) => {
+  if (!MAILTRAP_API_TOKEN || !MAILTRAP_INBOX_ID) {
+    logger.warn(`Email skipped (Mailtrap not configured): to=${to} subject=${subject}`);
+    return false;
+  }
   try {
-    const t = await getTransporter();
-    if (!t) {
-      logger.warn(`Email skipped (SMTP not configured): to=${to} subject=${subject}`);
-      return false;
+    const from = await getFromInfo();
+    const body = {
+      from: { email: from.email, name: from.name },
+      to: [{ email: to }],
+      subject,
+      html,
+    };
+    if (attachments.length > 0) {
+      body.attachments = attachments.map((a) => ({
+        filename: a.filename,
+        content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : a.content,
+        type: a.contentType || 'application/octet-stream',
+        disposition: 'attachment',
+      }));
     }
-    await t.transport.sendMail({ from: t.from, to, subject, html, attachments });
+    const res = await fetch(`${MAILTRAP_API_URL}/api/send/${MAILTRAP_INBOX_ID}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-Token': MAILTRAP_API_TOKEN,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Mailtrap API ${res.status}: ${err}`);
+    }
     logger.info(`Email sent to ${to}: ${subject}`);
     return true;
   } catch (err) {
@@ -115,4 +119,102 @@ const sendPaymentConfirmation = async (to, { name, plan, amount, currency, recei
   return sendEmail(to, '✅ ElimuAI Payment Confirmed', html);
 };
 
-module.exports = { sendEmail, sendInvoiceEmail, sendPaymentConfirmation, invalidateTransporter };
+/**
+ * Send subscription expiry warning email.
+ */
+const sendExpiryWarning = async (to, { name, plan, daysLeft, expiresAt, lang = 'en' }) => {
+  const isSw = lang === 'sw';
+  const renewUrl = process.env.FRONTEND_URL || 'https://elimuai.africa';
+  const subject = isSw
+    ? `⚠️ Usajili wako wa ElimuAI unaisha ${daysLeft <= 0 ? 'leo' : `siku ${daysLeft}`}`
+    : `⚠️ Your ElimuAI subscription expires ${daysLeft <= 0 ? 'today' : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`}`;
+  const html = `
+    <div style="font-family:'Segoe UI',Tahoma,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:30px">
+      <div style="text-align:center;margin-bottom:24px">
+        <h1 style="color:#7c3aed;margin:0 0 4px">🎓 ElimuAI</h1>
+        <p style="color:#666;font-size:12px;margin:0">ELIMU · UJUZI · MAFANIKIO</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:24px">
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="font-size:48px">⏰</div>
+          <h2 style="color:#ea580c;margin:8px 0 4px">${isSw ? 'Usajili Unaisha!' : 'Subscription Expiring!'}</h2>
+          <p style="color:#666;font-size:13px;margin:0">${isSw ? `Habari ${name},` : `Hi ${name},`}</p>
+        </div>
+        <p style="color:#333;font-size:14px;line-height:1.6;margin:16px 0">
+          ${isSw
+            ? `Mpango wako wa <strong style="text-transform:capitalize">${plan}</strong> ${daysLeft <= 0 ? 'umeisha leo' : `utaisha tarehe <strong>${new Date(expiresAt).toLocaleDateString('sw-KE')}</strong> (siku ${daysLeft} zilizobaki)`}. Hudhuria ili kuendelea kujifunza bila kukatizwa.`
+            : `Your <strong style="text-transform:capitalize">${plan}</strong> plan ${daysLeft <= 0 ? 'expires today' : `expires on <strong>${new Date(expiresAt).toLocaleDateString('en-KE')}</strong> (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)`}. Renew now to keep learning without interruption.`
+          }
+        </p>
+        <div style="text-align:center;margin:24px 0 16px">
+          <a href="${renewUrl}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-size:16px;font-weight:bold">
+            ${isSw ? '🔄 Huisha Sasa' : '🔄 Renew Now'}
+          </a>
+        </div>
+        <div style="background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;padding:12px;margin:16px 0">
+          <p style="color:#92400e;font-size:12px;margin:0;font-weight:bold">
+            ${isSw
+              ? '💡 Chagua mpango wa mwaka na uokoe hadi 30%!'
+              : '💡 Switch to an annual plan and save up to 30%!'}
+          </p>
+        </div>
+        <p style="color:#666;font-size:12px;margin:16px 0 0">
+          ${isSw
+            ? 'Ukiisha, utarudi mpango wa bure na huduma za msingi pekee.'
+            : 'After expiry, your account will revert to the free plan with basic features only.'}
+        </p>
+      </div>
+      <p style="color:#999;font-size:11px;text-align:center;margin-top:16px">${isSw ? 'Timu ya ElimuAI' : 'The ElimuAI Team'} · <a href="${renewUrl}" style="color:#7c3aed">elimuai.africa</a></p>
+    </div>
+  `;
+  return sendEmail(to, subject, html);
+};
+
+/**
+ * Send free-plan upgrade nudge email.
+ */
+const sendUpgradeNudge = async (to, { name, lang = 'en' }) => {
+  const isSw = lang === 'sw';
+  const upgradeUrl = process.env.FRONTEND_URL || 'https://elimuai.africa';
+  const subject = isSw
+    ? '🚀 Boresha Mpango wako wa ElimuAI'
+    : '🚀 Upgrade your ElimuAI plan';
+  const html = `
+    <div style="font-family:'Segoe UI',Tahoma,sans-serif;max-width:600px;margin:0 auto;background:#f9f9f9;padding:30px">
+      <div style="text-align:center;margin-bottom:24px">
+        <h1 style="color:#7c3aed;margin:0 0 4px">🎓 ElimuAI</h1>
+        <p style="color:#666;font-size:12px;margin:0">ELIMU · UJUZI · MAFANIKIO</p>
+      </div>
+      <div style="background:#fff;border:1px solid #e0e0e0;border-radius:12px;padding:24px">
+        <div style="text-align:center;margin-bottom:16px">
+          <div style="font-size:48px">🌟</div>
+          <h2 style="color:#7c3aed;margin:8px 0 4px">${isSw ? 'Boresha Kujifunza Kwako!' : 'Level Up Your Learning!'}</h2>
+          <p style="color:#666;font-size:13px;margin:0">${isSw ? `Habari ${name},` : `Hi ${name},`}</p>
+        </div>
+        <p style="color:#333;font-size:14px;line-height:1.6;margin:16px 0">
+          ${isSw
+            ? 'Uko kwenye mpango wa bure. Boresha na upate huduma zaidi:'
+            : 'You\'re on the free plan. Upgrade to unlock powerful features:'}
+        </p>
+        <ul style="color:#333;font-size:13px;line-height:2;padding-left:20px;margin:12px 0">
+          <li>${isSw ? '🤖 AI Tutor bila kikomo' : '🤖 Unlimited AI Tutor sessions'}</li>
+          <li>${isSw ? '📝 Mitihani ya zamani' : '📝 Past paper exam practice'}</li>
+          <li>${isSw ? '📊 Ripoti za kina kila wiki' : '📊 Detailed weekly reports'}</li>
+          <li>${isSw ? '🏆 Ushindani wa ubao wa viongozi' : '🏆 Full leaderboard access'}</li>
+        </ul>
+        <div style="text-align:center;margin:24px 0 16px">
+          <a href="${upgradeUrl}" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;padding:14px 36px;border-radius:12px;font-size:16px;font-weight:bold">
+            ${isSw ? '⬆️ Boresha Sasa' : '⬆️ Upgrade Now'}
+          </a>
+        </div>
+        <p style="color:#666;font-size:12px;margin:16px 0 0;text-align:center">
+          ${isSw ? 'Kuanzia KES 299/mwezi tu' : 'Starting from just KES 299/month'}
+        </p>
+      </div>
+      <p style="color:#999;font-size:11px;text-align:center;margin-top:16px">${isSw ? 'Timu ya ElimuAI' : 'The ElimuAI Team'} · <a href="${upgradeUrl}" style="color:#7c3aed">elimuai.africa</a></p>
+    </div>
+  `;
+  return sendEmail(to, subject, html);
+};
+
+module.exports = { sendEmail, sendInvoiceEmail, sendPaymentConfirmation, sendExpiryWarning, sendUpgradeNudge, invalidateTransporter };

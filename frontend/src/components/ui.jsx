@@ -1,76 +1,38 @@
-import { C, font } from "@/theme";
+import { C } from "@/theme";
 
-export function Spinner({ color = C.primary, size = 7 }) {
+export function Spinner({ color = "text-purple-600", size = 7 }) {
   return (
-    <div style={{ display: "flex", gap: 5, alignItems: "center", justifyContent: "center", padding: "10px 0" }}>
+    <div className="flex gap-1.5 items-center justify-center py-2.5">
       {[0, 1, 2].map((i) => (
-        <div key={i} style={{ width: size, height: size, borderRadius: "50%", background: color, animation: `dotPulse 1s ease-in-out ${i * 0.15}s infinite` }} />
+        <div key={i} className="rounded-full animate-dotPulse" style={{ width: size, height: size, background: color === "text-purple-600" ? "#9333EA" : color, animationDelay: `${i * 0.15}s` }} />
       ))}
     </div>
   );
 }
 
-export function Card({ children, style = {}, hover = false, onClick }) {
+export function Card({ children, className = "", hover = false, onClick, style = {} }) {
   return (
     <div
       onClick={onClick}
-      style={{
-        background: C.white,
-        border: `1px solid ${C.border}`,
-        borderRadius: 16,
-        padding: 20,
-        boxShadow: C.shadow,
-        transition: "all 0.2s ease",
-        cursor: onClick ? "pointer" : "default",
-        ...style,
-      }}
-      onMouseEnter={(e) => {
-        if (hover) {
-          e.currentTarget.style.boxShadow = C.shadowLg;
-          e.currentTarget.style.transform = "translateY(-2px)";
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (hover) {
-          e.currentTarget.style.boxShadow = C.shadow;
-          e.currentTarget.style.transform = "translateY(0)";
-        }
-      }}
+      className={`bg-white border border-slate-200 rounded-2xl p-5 shadow-sm transition-all duration-200 ${onClick ? "cursor-pointer" : ""} ${hover ? "hover:shadow-lg hover:-translate-y-0.5" : ""} ${className}`}
+      style={style}
     >
       {children}
     </div>
   );
 }
 
-export function Badge({ children, color = C.primary, style = {} }) {
+export function Badge({ children, color = "#9333EA", className = "" }) {
   return (
-    <span style={{
-      background: `${color}15`,
-      color,
-      fontSize: 12,
-      padding: "4px 12px",
-      borderRadius: 20,
-      fontFamily: font.body,
-      fontWeight: 700,
-      display: "inline-block",
-      ...style,
-    }}>
+    <span className={`text-xs px-3 py-1 rounded-full font-body font-bold inline-block ${className}`} style={{ background: `${color}15`, color }}>
       {children}
     </span>
   );
 }
 
-export function SecTitle({ children, color = C.primary }) {
+export function SecTitle({ children, color = "#9333EA" }) {
   return (
-    <p style={{
-      color,
-      fontSize: 12,
-      fontFamily: font.body,
-      fontWeight: 800,
-      letterSpacing: 1.5,
-      textTransform: "uppercase",
-      margin: "0 0 12px",
-    }}>
+    <p className="text-xs font-body font-extrabold tracking-widest uppercase mb-3" style={{ color }}>
       {children}
     </p>
   );
@@ -78,22 +40,11 @@ export function SecTitle({ children, color = C.primary }) {
 
 export function SubjectPills({ subjects, active, setActive }) {
   return (
-    <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+    <div className="flex gap-1.5 overflow-x-auto pb-1">
       {subjects.map((s) => (
-        <button key={s} onClick={() => setActive(s)} style={{
-          padding: "6px 14px",
-          borderRadius: 20,
-          border: "none",
-          cursor: "pointer",
-          whiteSpace: "nowrap",
-          flexShrink: 0,
-          background: active === s ? C.primary : C.surface,
-          color: active === s ? C.white : C.textSecondary,
-          fontSize: 12,
-          fontFamily: font.body,
-          fontWeight: 700,
-          transition: "all 0.2s",
-        }}>
+        <button key={s} onClick={() => setActive(s)} className={`px-3.5 py-1.5 rounded-full border-none cursor-pointer whitespace-nowrap shrink-0 text-xs font-body font-bold transition-all duration-200 ${
+          active === s ? "bg-purple-600 text-white" : "bg-slate-50 text-slate-600"
+        }`}>
           {s}
         </button>
       ))}
@@ -102,15 +53,15 @@ export function SubjectPills({ subjects, active, setActive }) {
 }
 
 export function SkeletonLine({ w = "100%", h = 12, r = 6, mb = 8 }) {
-  return <div style={{ width: w, height: h, borderRadius: r, background: C.borderLight, marginBottom: mb, animation: "pulse 1.4s ease-in-out infinite" }} />;
+  return <div className="animate-skPulse" style={{ width: w, height: h, borderRadius: r, background: "#F1F5F9", marginBottom: mb }} />;
 }
 
 export function SkeletonCard({ lines = 3, avatar = false }) {
   return (
-    <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 8 }}>
-      <div style={{ display: "flex", gap: 10, alignItems: avatar ? "center" : "flex-start" }}>
-        {avatar && <div style={{ width: 34, height: 34, borderRadius: "50%", background: C.borderLight, flexShrink: 0, animation: "pulse 1.4s ease-in-out infinite" }} />}
-        <div style={{ flex: 1 }}>
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-2">
+      <div className={`flex gap-2.5 ${avatar ? "items-center" : "items-start"}`}>
+        {avatar && <div className="w-[34px] h-[34px] rounded-full bg-slate-100 shrink-0 animate-skPulse" />}
+        <div className="flex-1">
           {Array.from({ length: lines }).map((_, i) => (
             <SkeletonLine key={i} w={i === 0 ? "60%" : i === lines - 1 ? "40%" : "80%"} h={i === 0 ? 14 : 11} mb={i < lines - 1 ? 8 : 0} />
           ))}
@@ -122,9 +73,9 @@ export function SkeletonCard({ lines = 3, avatar = false }) {
 
 export function SkeletonTable({ rows = 5, cols = 4 }) {
   return (
-    <div style={{ marginTop: 8 }}>
+    <div className="mt-2">
       {Array.from({ length: rows }).map((_, r) => (
-        <div key={r} style={{ display: "flex", gap: 12, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
+        <div key={r} className="flex gap-3 py-2.5 border-b border-slate-200">
           {Array.from({ length: cols }).map((_, c) => (
             <SkeletonLine key={c} w={c === 0 ? "30%" : "20%"} h={12} mb={0} />
           ))}
@@ -134,38 +85,24 @@ export function SkeletonTable({ rows = 5, cols = 4 }) {
   );
 }
 
-export function Button({ children, onClick, variant = "primary", size = "md", style = {}, disabled = false, icon }) {
+export function Button({ children, onClick, variant = "primary", size = "md", className = "", disabled = false, icon, style = {} }) {
+  const base = "inline-flex items-center justify-center gap-2 font-body font-extrabold transition-all duration-200 cursor-pointer";
   const variants = {
-    primary: { background: C.gradientPrimary, color: C.white, border: "none" },
-    secondary: { background: C.gradientSecondary, color: C.white, border: "none" },
-    accent: { background: C.gradientAccent, color: C.white, border: "none" },
-    outline: { background: "transparent", color: C.primary, border: `2px solid ${C.primary}` },
-    ghost: { background: "transparent", color: C.textSecondary, border: "none" },
-    white: { background: C.white, color: C.primary, border: "none" },
+    primary: "bg-gradient-primary text-white border-none shadow-md",
+    secondary: "bg-gradient-secondary text-white border-none shadow-md",
+    accent: "bg-gradient-accent text-white border-none shadow-md",
+    outline: "bg-transparent text-purple-600 border-2 border-purple-600",
+    ghost: "bg-transparent text-slate-600 border-none",
+    white: "bg-white text-purple-600 border-none",
   };
   const sizes = {
-    sm: { padding: "8px 16px", fontSize: 13, borderRadius: 10 },
-    md: { padding: "12px 24px", fontSize: 14, borderRadius: 12 },
-    lg: { padding: "16px 32px", fontSize: 16, borderRadius: 14 },
-    xl: { padding: "18px 40px", fontSize: 18, borderRadius: 16 },
+    sm: "px-4 py-2 text-[13px] rounded-[10px]",
+    md: "px-6 py-3 text-sm rounded-xl",
+    lg: "px-8 py-4 text-base rounded-[14px]",
+    xl: "px-10 py-[18px] text-lg rounded-2xl",
   };
-  const v = variants[variant] || variants.primary;
-  const s = sizes[size] || sizes.md;
   return (
-    <button onClick={onClick} disabled={disabled} style={{
-      ...v, ...s,
-      cursor: disabled ? "not-allowed" : "pointer",
-      fontFamily: font.body,
-      fontWeight: 800,
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 8,
-      transition: "all 0.2s ease",
-      opacity: disabled ? 0.6 : 1,
-      boxShadow: variant === "primary" || variant === "secondary" ? C.shadowMd : "none",
-      ...style,
-    }}>
+    <button onClick={onClick} disabled={disabled} className={`${base} ${variants[variant] || variants.primary} ${sizes[size] || sizes.md} ${disabled ? "opacity-60 cursor-not-allowed" : ""} ${className}`} style={style}>
       {icon && <span>{icon}</span>}
       {children}
     </button>
@@ -174,45 +111,17 @@ export function Button({ children, onClick, variant = "primary", size = "md", st
 
 export function SectionTitle({ badge, title, subtitle, center = true }) {
   return (
-    <div style={{ textAlign: center ? "center" : "left", marginBottom: 40 }}>
+    <div className={`mb-10 ${center ? "text-center" : "text-left"}`}>
       {badge && (
-        <span style={{
-          display: "inline-block",
-          background: `${C.primary}12`,
-          color: C.primary,
-          fontSize: 13,
-          fontWeight: 800,
-          padding: "6px 18px",
-          borderRadius: 20,
-          fontFamily: font.body,
-          marginBottom: 12,
-          letterSpacing: 0.5,
-        }}>
+        <span className="inline-block bg-purple-600/[0.07] text-purple-600 text-[13px] font-extrabold px-[18px] py-1.5 rounded-full font-body mb-3 tracking-wide">
           {badge}
         </span>
       )}
-      <h2 style={{
-        color: C.text,
-        fontSize: "clamp(28px, 4vw, 40px)",
-        fontFamily: font.heading,
-        fontWeight: 900,
-        margin: "0 0 12px",
-        lineHeight: 1.2,
-      }}>
+      <h2 className="text-slate-900 text-[clamp(28px,4vw,40px)] font-heading font-black m-0 mb-3 leading-tight">
         {title}
       </h2>
       {subtitle && (
-        <p style={{
-          color: C.textSecondary,
-          fontSize: 16,
-          fontFamily: font.body,
-          fontWeight: 600,
-          margin: 0,
-          maxWidth: 600,
-          marginLeft: center ? "auto" : 0,
-          marginRight: center ? "auto" : 0,
-          lineHeight: 1.6,
-        }}>
+        <p className={`text-slate-600 text-base font-body font-semibold m-0 max-w-[600px] leading-relaxed ${center ? "mx-auto" : ""}`}>
           {subtitle}
         </p>
       )}

@@ -1,17 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { C, font } from "@/theme";
 import { translations } from "@/i18n/translations";
 import { apiPost } from "@/utils/api";
-import { setTokens } from "@/utils/auth";
-import { CURRICULA } from "@/data/constants";
+import { setTokens, hasAuthToken } from "@/utils/auth";
 import { Spinner } from "@/components/ui";
 import {
   GraduationCap, Users, Heart, School,
   User, Mail, Globe, ArrowLeft, ArrowRight,
   Languages, AlertTriangle, Lock, Eye, EyeOff,
+  ShieldCheck, RotateCcw,
 } from "lucide-react";
 
 const ROLES = [
@@ -21,9 +20,39 @@ const ROLES = [
   { id: "admin", icon: <School size={28} />, en: "School Admin", sw: "Msimamizi" },
 ];
 
+function OTPInput({ length = 6, value, onChange }) {
+  const inputs = useRef([]);
+  const handleChange = (i, v) => {
+    if (!/^\d*$/.test(v)) return;
+    const arr = value.split("");
+    arr[i] = v.slice(-1);
+    const next = arr.join("").slice(0, length);
+    onChange(next);
+    if (v && i < length - 1) inputs.current[i + 1]?.focus();
+  };
+  const handleKeyDown = (i, e) => {
+    if (e.key === "Backspace" && !value[i] && i > 0) inputs.current[i - 1]?.focus();
+  };
+  const handlePaste = (e) => {
+    const paste = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, length);
+    if (paste.length) { onChange(paste); inputs.current[Math.min(paste.length, length - 1)]?.focus(); e.preventDefault(); }
+  };
+  return (
+    <div className="flex gap-2.5 justify-center" onPaste={handlePaste}>
+      {Array.from({ length }).map((_, i) => (
+        <input key={i} ref={(el) => (inputs.current[i] = el)} type="text" inputMode="numeric" maxLength={1}
+          value={value[i] || ""} onChange={(e) => handleChange(i, e.target.value)} onKeyDown={(e) => handleKeyDown(i, e)}
+          className="w-12 h-14 text-center text-2xl font-heading font-black text-slate-900 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none transition-colors duration-200 focus:border-emerald-500 focus:bg-white" />
+      ))}
+    </div>
+  );
+}
+
 export default function RegisterPage({ lang, setLang, onLogin }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
   const router = useRouter();
+
+  useEffect(() => { if (hasAuthToken()) router.replace("/dashboard"); }, [router]);
 
   const [step, setStep] = useState(1);
   const [role, setRole] = useState("");
@@ -35,6 +64,17 @@ export default function RegisterPage({ lang, setLang, onLogin }) {
   const [schoolName, setSchoolName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // OTP state
+  const [otpCode, setOtpCode] = useState("");
+  const [otpEmail, setOtpEmail] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
 
   const handleRegister = async () => {
     if (!name.trim()) { setError(lang === "sw" ? "Ingiza jina lako." : "Please enter your name."); return; }
@@ -53,6 +93,15 @@ export default function RegisterPage({ lang, setLang, onLogin }) {
       const body = { name: name.trim(), email: email.trim(), password, role, country };
       if (role === "admin" && schoolName.trim()) body.school_name = schoolName.trim();
       const data = await apiPost("/api/auth/register", body);
+
+      if (data?.requiresOTP) {
+        setOtpEmail(data.user?.email || email.trim());
+        setResendCooldown(60);
+        setStep(3); // Go to OTP verification step
+        return;
+      }
+
+      // Fallback: direct registration (shouldn't happen with OTP enabled)
       setTokens(data);
       if (onLogin) onLogin(data?.user, data);
       router.push("/dashboard");
@@ -63,214 +112,225 @@ export default function RegisterPage({ lang, setLang, onLogin }) {
     }
   };
 
-  const inputStyle = {
-    width: "100%",
-    background: C.surface,
-    border: `2px solid ${C.border}`,
-    borderRadius: 14,
-    padding: "14px 16px",
-    color: C.text,
-    fontSize: 16,
-    fontFamily: font.body,
-    fontWeight: 600,
-    outline: "none",
-    boxSizing: "border-box",
-    transition: "border-color 0.2s",
+  const handleVerifyOTP = async () => {
+    if (otpCode.length < 6) { setError(lang === "sw" ? "Ingiza msimbo kamili." : "Please enter the full 6-digit code."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      const data = await apiPost("/api/auth/verify-otp", { email: otpEmail, code: otpCode, purpose: "signup" });
+      if (data?.verified && data?.accessToken) {
+        setTokens(data);
+        if (onLogin) onLogin(data?.user, data);
+        router.push("/dashboard");
+      }
+    } catch (err) {
+      setError(err?.message || (lang === "sw" ? "Msimbo si sahihi" : "Invalid code"));
+    } finally {
+      setLoading(false);
+    }
   };
 
+  const handleResend = async () => {
+    if (resendCooldown > 0) return;
+    setError("");
+    try {
+      await apiPost("/api/auth/resend-otp", { email: otpEmail, purpose: "signup" });
+      setResendCooldown(60);
+      setOtpCode("");
+    } catch (err) {
+      setError(err?.message || "Failed to resend");
+    }
+  };
+
+  const inputCls = "w-full bg-slate-50 border-2 border-slate-200 rounded-[14px] px-4 py-3.5 text-slate-900 text-base font-body font-semibold outline-none transition-colors duration-200 focus:border-purple-600";
+
   return (
-    <div style={{ minHeight: "100vh", display: "flex" }}>
-      {/* Left panel */}
-      <div style={{
-        flex: "0 0 50%", background: "linear-gradient(135deg, #059669 0%, #10B981 50%, #34D399 100%)",
-        display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center",
-        padding: "60px 40px", position: "relative", overflow: "hidden",
-      }} className="auth-left-panel">
-        <div style={{ position: "absolute", top: "-15%", right: "-10%", width: "45vw", height: "45vw", borderRadius: "50%", background: "rgba(255,255,255,0.04)" }} />
-        <div style={{ position: "absolute", bottom: "-10%", left: "-8%", width: "35vw", height: "35vw", borderRadius: "50%", background: "rgba(255,255,255,0.03)" }} />
-        <div style={{ position: "relative", zIndex: 1, textAlign: "center", maxWidth: 420 }}>
-          <GraduationCap size={64} color="rgba(255,255,255,0.9)" strokeWidth={1.5} style={{ marginBottom: 24 }} />
-          <h1 style={{ color: "#fff", fontSize: "clamp(32px, 4vw, 44px)", fontFamily: font.heading, fontWeight: 900, margin: "0 0 12px", lineHeight: 1.2 }}>
+    <div className="min-h-screen flex">
+      {/* Left branding panel */}
+      <div className="hidden md:flex w-1/2 bg-gradient-register flex-col justify-center items-center p-10 relative overflow-hidden">
+        <div className="absolute -top-[15%] -right-[10%] w-[45vw] h-[45vw] rounded-full bg-white/[0.04]" />
+        <div className="absolute -bottom-[10%] -left-[8%] w-[35vw] h-[35vw] rounded-full bg-white/[0.03]" />
+        <div className="relative z-[1] text-center max-w-[420px]">
+          <GraduationCap size={64} className="text-white/90 mb-6" strokeWidth={1.5} />
+          <h1 className="text-white text-[clamp(32px,4vw,44px)] font-heading font-black mb-3 leading-tight">
             {lang === "sw" ? "Jiunge na ElimuAI" : "Join ElimuAI"}
           </h1>
-          <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 10, fontFamily: font.body, fontWeight: 700, letterSpacing: 3, textTransform: "uppercase", margin: "0 0 32px" }}>{t("motto")}</p>
-          <div style={{ borderRadius: 20, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", border: "4px solid rgba(255,255,255,0.15)", marginBottom: 32 }}>
-            <img src="https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=600&h=400&fit=crop&crop=faces" alt="Students learning" style={{ width: "100%", height: 260, objectFit: "cover", display: "block" }} />
+          <p className="text-white/60 text-[10px] font-body font-bold tracking-[3px] uppercase mb-8">{t("motto")}</p>
+          <div className="rounded-[20px] overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.3)] border-4 border-white/15 mb-8">
+            <img src="https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=600&h=400&fit=crop&crop=faces" alt="Students learning" className="w-full h-[260px] object-cover block" />
           </div>
-          <p style={{ color: "rgba(255,255,255,0.75)", fontSize: 16, fontFamily: font.body, fontWeight: 600, lineHeight: 1.7, margin: 0 }}>
+          <p className="text-white/75 text-base font-body font-semibold leading-relaxed">
             {lang === "sw" ? "Anzisha safari yako ya kujifunza leo. Akaunti ya bure inajumuisha maswali 5 ya AI kila siku." : "Start your learning journey today. Free accounts include 5 AI questions per day."}
           </p>
-          <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 24 }}>
+          <div className="flex gap-3 justify-center mt-6">
             {["\u{1F1F0}\u{1F1EA}", "\u{1F1F9}\u{1F1FF}", "\u{1F1FA}\u{1F1EC}"].map((f, i) => (
-              <span key={i} style={{ fontSize: 24, background: "rgba(255,255,255,0.12)", borderRadius: 12, padding: "8px 12px" }}>{f}</span>
+              <span key={i} className="text-2xl bg-white/[0.12] rounded-xl px-3 py-2">{f}</span>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Right panel */}
-      <div style={{
-        flex: "0 0 50%", display: "flex", flexDirection: "column", justifyContent: "center",
-        padding: "40px", background: C.white, position: "relative", overflowY: "auto",
-      }} className="auth-right-panel">
-        <div style={{ position: "absolute", top: 24, right: 24 }}>
-          <button onClick={() => setLang((l) => (l === "en" ? "sw" : "en"))} style={{
-            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
-            padding: "6px 14px", cursor: "pointer", color: C.teal, fontSize: 12,
-            fontFamily: font.body, fontWeight: 800, display: "flex", alignItems: "center", gap: 6,
-          }}>
+      {/* Right form panel */}
+      <div className="w-full md:w-1/2 flex flex-col justify-center p-10 bg-white relative overflow-y-auto">
+        <div className="absolute top-6 right-6">
+          <button onClick={() => setLang((l) => (l === "en" ? "sw" : "en"))} className="bg-slate-50 border border-slate-200 rounded-[10px] px-3.5 py-1.5 cursor-pointer text-teal-500 text-xs font-body font-extrabold flex items-center gap-1.5">
             <Languages size={14} /> {lang === "en" ? "Kiswahili" : "English"}
           </button>
         </div>
 
-        <div style={{ maxWidth: 460, width: "100%", margin: "0 auto" }}>
-          {/* Progress */}
-          <div style={{ display: "flex", gap: 6, marginBottom: 32 }}>
-            {[1, 2].map((s) => (
-              <div key={s} style={{
-                flex: 1, height: 4, borderRadius: 4,
-                background: step >= s ? C.gradientAccent : C.surface,
-                transition: "background 0.3s",
-              }} />
+        <div className="max-w-[460px] w-full mx-auto">
+          {/* Progress bar */}
+          <div className="flex gap-1.5 mb-8">
+            {[1, 2, 3].map((s) => (
+              <div key={s} className={`flex-1 h-1 rounded transition-colors duration-300 ${step >= s ? "bg-gradient-accent" : "bg-slate-50"}`} />
             ))}
           </div>
 
           {/* Step 1: Role */}
           {step === 1 && (<>
-            <h2 style={{ color: C.text, fontSize: 26, fontFamily: font.heading, fontWeight: 900, margin: "0 0 4px" }}>
+            <h2 className="text-slate-900 text-[26px] font-heading font-black mb-1">
               {lang === "sw" ? "Wewe ni nani?" : "Who are you?"}
             </h2>
-            <p style={{ color: C.textSecondary, fontSize: 14, fontFamily: font.body, fontWeight: 600, margin: "0 0 28px" }}>
+            <p className="text-slate-600 text-sm font-body font-semibold mb-7">
               {lang === "sw" ? "Chagua nafasi yako ili tupate kukutengenezea uzoefu bora." : "Choose your role so we can tailor the best experience for you."}
             </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
+            <div className="grid grid-cols-2 gap-3 mb-6">
               {ROLES.map((r) => (
-                <button key={r.id} onClick={() => setRole(r.id)} style={{
-                  background: role === r.id ? `${C.primary}10` : C.surface,
-                  border: `2px solid ${role === r.id ? C.primary : C.border}`,
-                  borderRadius: 16, padding: "20px 12px", cursor: "pointer",
-                  textAlign: "center", transition: "all 0.2s",
-                }}>
-                  <div style={{ color: role === r.id ? C.primary : C.textSecondary, marginBottom: 8, display: "flex", justifyContent: "center" }}>{r.icon}</div>
-                  <span style={{ color: role === r.id ? C.primary : C.text, fontSize: 14, fontFamily: font.body, fontWeight: 800 }}>
-                    {r[lang] || r.en}
-                  </span>
+                <button key={r.id} onClick={() => setRole(r.id)} className={`rounded-2xl px-3 py-5 cursor-pointer text-center transition-all duration-200 ${
+                  role === r.id ? "bg-purple-600/[0.06] border-2 border-purple-600" : "bg-slate-50 border-2 border-slate-200"
+                }`}>
+                  <div className={`mb-2 flex justify-center ${role === r.id ? "text-purple-600" : "text-slate-600"}`}>{r.icon}</div>
+                  <span className={`text-sm font-body font-extrabold ${role === r.id ? "text-purple-600" : "text-slate-900"}`}>{r[lang] || r.en}</span>
                 </button>
               ))}
             </div>
-            <button onClick={() => role && setStep(2)} disabled={!role} style={{
-              width: "100%", padding: "14px", borderRadius: 14, border: "none",
-              cursor: role ? "pointer" : "not-allowed",
-              background: role ? C.gradientAccent : C.surface,
-              color: role ? C.white : C.textMuted,
-              fontSize: 16, fontFamily: font.body, fontWeight: 800,
-              boxShadow: role ? `0 4px 14px ${C.accent}40` : "none",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            }}>{t("continue")} <ArrowRight size={16} /></button>
+            <button onClick={() => role && setStep(2)} disabled={!role} className={`w-full py-3.5 rounded-[14px] border-none text-base font-body font-extrabold flex items-center justify-center gap-2 ${
+              role ? "cursor-pointer bg-gradient-accent text-white shadow-[0_4px_14px_rgba(16,185,129,0.25)]" : "cursor-not-allowed bg-slate-50 text-slate-400"
+            }`}>
+              {t("continue")} <ArrowRight size={16} />
+            </button>
           </>)}
 
           {/* Step 2: Details */}
           {step === 2 && (<>
-            <h2 style={{ color: C.text, fontSize: 26, fontFamily: font.heading, fontWeight: 900, margin: "0 0 4px" }}>
+            <h2 className="text-slate-900 text-[26px] font-heading font-black mb-1">
               {lang === "sw" ? "Maelezo yako" : "Your Details"}
             </h2>
-            <p style={{ color: C.textSecondary, fontSize: 14, fontFamily: font.body, fontWeight: 600, margin: "0 0 28px" }}>
+            <p className="text-slate-600 text-sm font-body font-semibold mb-7">
               {lang === "sw" ? "Jaza maelezo yako kuunda akaunti." : "Fill in your details to create an account."}
             </p>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSecondary, fontSize: 13, fontFamily: font.body, fontWeight: 700, marginBottom: 8 }}>
-                <User size={15} /> {lang === "sw" ? "Jina Kamili" : "Full Name"}
-              </label>
-              <input type="text" value={name} onChange={(e) => { setName(e.target.value); setError(""); }}
-                placeholder={lang === "sw" ? "Jina lako" : "Your full name"} style={inputStyle}
-                onFocus={(e) => (e.target.style.borderColor = C.primary)} onBlur={(e) => (e.target.style.borderColor = C.border)} />
+
+            <div className="mb-4">
+              <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2"><User size={15} /> {lang === "sw" ? "Jina Kamili" : "Full Name"}</label>
+              <input type="text" value={name} onChange={(e) => { setName(e.target.value); setError(""); }} placeholder={lang === "sw" ? "Jina lako" : "Your full name"} className={inputCls} />
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSecondary, fontSize: 13, fontFamily: font.body, fontWeight: 700, marginBottom: 8 }}>
-                <Mail size={15} /> {t("enter_email")}
-              </label>
-              <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }}
-                placeholder="you@example.com" style={inputStyle}
-                onFocus={(e) => (e.target.style.borderColor = C.primary)} onBlur={(e) => (e.target.style.borderColor = C.border)} />
+            <div className="mb-4">
+              <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2"><Mail size={15} /> {t("enter_email")}</label>
+              <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setError(""); }} placeholder="you@example.com" className={inputCls} />
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSecondary, fontSize: 13, fontFamily: font.body, fontWeight: 700, marginBottom: 8 }}>
-                <Lock size={15} /> {lang === "sw" ? "Nenosiri" : "Password"}
-              </label>
-              <div style={{ position: "relative" }}>
-                <input type={showPwd ? "text" : "password"} value={password}
-                  onChange={(e) => { setPassword(e.target.value); setError(""); }}
-                  placeholder={lang === "sw" ? "Angalau herufi 6" : "At least 6 characters"}
-                  style={{ ...inputStyle, paddingRight: 48 }}
-                  onFocus={(e) => (e.target.style.borderColor = C.primary)} onBlur={(e) => (e.target.style.borderColor = C.border)} />
-                <button onClick={() => setShowPwd(!showPwd)} type="button" style={{
-                  position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)",
-                  background: "none", border: "none", cursor: "pointer", color: C.textMuted, padding: 0,
-                }}>{showPwd ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+            <div className="mb-4">
+              <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2"><Lock size={15} /> {lang === "sw" ? "Nenosiri" : "Password"}</label>
+              <div className="relative">
+                <input type={showPwd ? "text" : "password"} value={password} onChange={(e) => { setPassword(e.target.value); setError(""); }} placeholder={lang === "sw" ? "Angalau herufi 6" : "At least 6 characters"} className={`${inputCls} pr-12`} />
+                <button onClick={() => setShowPwd(!showPwd)} type="button" className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-slate-400 p-0">
+                  {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
               </div>
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSecondary, fontSize: 13, fontFamily: font.body, fontWeight: 700, marginBottom: 8 }}>
-                <Globe size={15} /> {lang === "sw" ? "Nchi" : "Country"}
-              </label>
-              <select value={country} onChange={(e) => setCountry(e.target.value)}
-                style={{ ...inputStyle, cursor: "pointer", appearance: "auto" }}>
+            <div className="mb-4">
+              <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2"><Globe size={15} /> {lang === "sw" ? "Nchi" : "Country"}</label>
+              <select value={country} onChange={(e) => setCountry(e.target.value)} className={`${inputCls} cursor-pointer appearance-auto`}>
                 <option value="KE">{"\u{1F1F0}\u{1F1EA}"} Kenya</option>
                 <option value="TZ">{"\u{1F1F9}\u{1F1FF}"} Tanzania</option>
                 <option value="UG">{"\u{1F1FA}\u{1F1EC}"} Uganda</option>
               </select>
             </div>
             {role === "admin" && (
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6, color: C.textSecondary, fontSize: 13, fontFamily: font.body, fontWeight: 700, marginBottom: 8 }}>
-                  <School size={15} /> {lang === "sw" ? "Jina la Shule" : "School Name"}
-                </label>
-                <input type="text" value={schoolName} onChange={(e) => { setSchoolName(e.target.value); setError(""); }}
-                  placeholder={lang === "sw" ? "Jina la shule yako" : "Your school name"} style={inputStyle}
-                  onFocus={(e) => (e.target.style.borderColor = C.primary)} onBlur={(e) => (e.target.style.borderColor = C.border)} />
+              <div className="mb-4">
+                <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2"><School size={15} /> {lang === "sw" ? "Jina la Shule" : "School Name"}</label>
+                <input type="text" value={schoolName} onChange={(e) => { setSchoolName(e.target.value); setError(""); }} placeholder={lang === "sw" ? "Jina la shule yako" : "Your school name"} className={inputCls} />
               </div>
             )}
-            {error && <p style={{ color: C.error, fontSize: 13, fontFamily: font.body, fontWeight: 700, margin: "0 0 16px", padding: "10px 14px", background: C.roseBg, borderRadius: 12, display: "flex", alignItems: "center", gap: 8 }}><AlertTriangle size={16} /> {error}</p>}
-            <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-              <button onClick={() => { setStep(1); setError(""); }} style={{
-                flex: "0 0 auto", padding: "14px 20px", borderRadius: 14, border: `2px solid ${C.border}`,
-                cursor: "pointer", background: "transparent", color: C.textSecondary, fontSize: 15, fontFamily: font.body, fontWeight: 700,
-                display: "flex", alignItems: "center", gap: 4,
-              }}><ArrowLeft size={16} /></button>
-              <button onClick={handleRegister} disabled={loading} style={{
-                flex: 1, padding: "14px", borderRadius: 14, border: "none",
-                cursor: loading ? "not-allowed" : "pointer",
-                background: C.gradientAccent, color: C.white,
-                fontSize: 16, fontFamily: font.body, fontWeight: 800,
-                opacity: loading ? 0.7 : 1, boxShadow: `0 4px 14px ${C.accent}40`,
-              }}>{loading ? <Spinner color="#fff" size={6} /> : (lang === "sw" ? "Jisajili" : "Create Account")}</button>
+
+            {error && (
+              <p className="text-red-500 text-[13px] font-body font-bold mb-4 px-3.5 py-2.5 bg-rose-50 rounded-xl flex items-center gap-2">
+                <AlertTriangle size={16} /> {error}
+              </p>
+            )}
+
+            <div className="flex gap-3 mt-2">
+              <button onClick={() => { setStep(1); setError(""); }} className="shrink-0 px-5 py-3.5 rounded-[14px] border-2 border-slate-200 cursor-pointer bg-transparent text-slate-600 text-[15px] font-body font-bold flex items-center gap-1">
+                <ArrowLeft size={16} />
+              </button>
+              <button onClick={handleRegister} disabled={loading} className={`flex-1 py-3.5 rounded-[14px] border-none bg-gradient-accent text-white text-base font-body font-extrabold shadow-[0_4px_14px_rgba(16,185,129,0.25)] ${loading ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}>
+                {loading ? <Spinner color="#fff" size={6} /> : (lang === "sw" ? "Jisajili" : "Create Account")}
+              </button>
             </div>
           </>)}
 
+          {/* Step 3: OTP Verification */}
+          {step === 3 && (<>
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 rounded-full bg-emerald-500 flex items-center justify-center mx-auto mb-4">
+                <ShieldCheck size={32} color="#fff" />
+              </div>
+              <h2 className="text-slate-900 text-[26px] font-heading font-black mb-2">
+                {lang === "sw" ? "Thibitisha Barua Pepe" : "Verify Your Email"}
+              </h2>
+              <p className="text-slate-500 text-sm font-body">
+                {lang === "sw" ? "Tumetuma msimbo wa tarakimu 6 kwa" : "We sent a 6-digit verification code to"}
+              </p>
+              <p className="text-emerald-600 text-sm font-body font-extrabold mt-1">{otpEmail}</p>
+            </div>
+
+            <OTPInput value={otpCode} onChange={(v) => { setOtpCode(v); setError(""); }} />
+
+            {error && (
+              <p className="text-red-500 text-[13px] font-body font-bold mt-4 mb-0 px-3.5 py-2.5 bg-rose-50 rounded-xl flex items-center gap-2">
+                <AlertTriangle size={16} /> {error}
+              </p>
+            )}
+
+            <button onClick={handleVerifyOTP} disabled={loading || otpCode.length < 6}
+              className={`w-full py-[15px] rounded-[14px] border-none cursor-pointer bg-gradient-accent text-white text-base font-body font-extrabold shadow-[0_4px_14px_rgba(16,185,129,0.25)] mt-6 ${(loading || otpCode.length < 6) ? "opacity-60 cursor-not-allowed" : ""}`}>
+              {loading ? <Spinner color="#fff" size={6} /> : (lang === "sw" ? "Thibitisha na Endelea" : "Verify & Continue")}
+            </button>
+
+            <div className="text-center mt-5">
+              <p className="text-slate-400 text-xs font-body mb-2">{lang === "sw" ? "Hukupokea msimbo?" : "Didn't receive the code?"}</p>
+              <button onClick={handleResend} disabled={resendCooldown > 0}
+                className={`bg-transparent border-none text-sm font-body font-extrabold cursor-pointer inline-flex items-center gap-1 ${resendCooldown > 0 ? "text-slate-300 cursor-not-allowed" : "text-emerald-600"}`}>
+                <RotateCcw size={14} /> {resendCooldown > 0 ? `${lang === "sw" ? "Tuma tena" : "Resend"} (${resendCooldown}s)` : (lang === "sw" ? "Tuma Tena" : "Resend Code")}
+              </button>
+            </div>
+
+            <button onClick={() => { setStep(2); setOtpCode(""); setError(""); }}
+              className="w-full mt-4 py-2.5 rounded-[14px] border-2 border-slate-200 bg-transparent text-slate-500 text-sm font-body font-bold cursor-pointer flex items-center justify-center gap-1">
+              <ArrowLeft size={14} /> {lang === "sw" ? "Rudi" : "Back"}
+            </button>
+          </>)}
+
           {/* Divider + login link */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "28px 0" }}>
-            <div style={{ flex: 1, height: 1, background: C.border }} />
-            <span style={{ color: C.textMuted, fontSize: 12, fontFamily: font.body, fontWeight: 700 }}>{lang === "sw" ? "au" : "or"}</span>
-            <div style={{ flex: 1, height: 1, background: C.border }} />
-          </div>
-          <div style={{ textAlign: "center" }}>
-            <p style={{ color: C.textSecondary, fontSize: 14, fontFamily: font.body, margin: "0 0 16px" }}>
-              {lang === "sw" ? "Tayari una akaunti?" : "Already have an account?"}{" "}
-              <Link href="/login" style={{ color: C.primary, fontWeight: 800, textDecoration: "none" }}>{t("sign_in")}</Link>
-            </p>
-            <Link href="/" style={{ color: C.textMuted, fontSize: 13, fontFamily: font.body, fontWeight: 700, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <ArrowLeft size={14} /> {lang === "sw" ? "Rudi Nyumbani" : "Back to Home"}
-            </Link>
-          </div>
+          {step !== 3 && (
+            <>
+              <div className="flex items-center gap-3 my-7">
+                <div className="flex-1 h-px bg-slate-200" />
+                <span className="text-slate-400 text-xs font-body font-bold">{lang === "sw" ? "au" : "or"}</span>
+                <div className="flex-1 h-px bg-slate-200" />
+              </div>
+              <div className="text-center">
+                <p className="text-slate-600 text-sm font-body mb-4">
+                  {lang === "sw" ? "Tayari una akaunti?" : "Already have an account?"}{" "}
+                  <Link href="/login" className="text-purple-600 font-extrabold no-underline">{t("sign_in")}</Link>
+                </p>
+                <Link href="/" className="text-slate-400 text-[13px] font-body font-bold no-underline inline-flex items-center gap-1">
+                  <ArrowLeft size={14} /> {lang === "sw" ? "Rudi Nyumbani" : "Back to Home"}
+                </Link>
+              </div>
+            </>
+          )}
         </div>
       </div>
-
-      <style>{`
-        @media (max-width: 768px) {
-          .auth-left-panel { display: none !important; }
-          .auth-right-panel { flex: 1 1 100% !important; }
-        }
-      `}</style>
     </div>
   );
 }
