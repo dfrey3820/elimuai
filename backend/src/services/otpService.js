@@ -22,6 +22,7 @@ const generateCode = () => {
  * @returns {{ success: boolean, message?: string }}
  */
 const sendOTP = async (email, purpose = 'verify_email', userId = null) => {
+  try {
   // Rate-limit: check cooldown
   const { rows: recent } = await db.query(
     `SELECT id FROM otp_tokens
@@ -84,6 +85,10 @@ const sendOTP = async (email, purpose = 'verify_email', userId = null) => {
 
   logger.info(`OTP sent to ${email} for ${purpose}`);
   return { success: true, message: 'Verification code sent to your email.' };
+  } catch (err) {
+    logger.error('sendOTP error', { error: err.message, email, purpose, stack: err.stack });
+    return { success: false, message: 'Unable to send verification code. Please try again.' };
+  }
 };
 
 /**
