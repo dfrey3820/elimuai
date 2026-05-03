@@ -3,6 +3,10 @@
 -- Safe to run multiple times (all statements use IF NOT EXISTS / DO blocks)
 -- ═══════════════════════════════════════════════════════════════════════════
 
+-- ─── EXTENSIONS ──────────────────────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+
 -- ─── ENUMS (add if missing) ──────────────────────────────────────────────────
 DO $$ BEGIN CREATE TYPE billing_cycle AS ENUM ('monthly', 'quarterly', 'semi_annual', 'annual'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN CREATE TYPE invoice_status AS ENUM ('draft', 'pending', 'paid', 'overdue', 'cancelled'); EXCEPTION WHEN duplicate_object THEN NULL; END $$;

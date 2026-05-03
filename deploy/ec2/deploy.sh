@@ -35,6 +35,10 @@ echo "[deploy] Applying schema migrations..."
 docker compose -f docker-compose.prod.yml exec -T postgres \
   psql -U "${POSTGRES_USER}" -d "${POSTGRES_DB}" -f /migrations/migrate.sql 2>&1 || true
 
+echo "[deploy] Checking backend container status..."
+sleep 5
+docker compose -f docker-compose.prod.yml logs --tail=30 backend 2>&1 || true
+
 echo "[deploy] Pruning old images"
 docker image prune -f >/dev/null 2>&1 || true
 
