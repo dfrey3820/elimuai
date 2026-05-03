@@ -1,9 +1,11 @@
 const logger = require('../config/logger');
 const { getSettings } = require('./settingsService');
 
-const MAILTRAP_API_URL = process.env.MAILTRAP_API_URL || 'https://sandbox.api.mailtrap.io';
+const MAILTRAP_API_URL = process.env.MAILTRAP_API_URL || 'https://send.api.mailtrap.io';
 const MAILTRAP_API_TOKEN = process.env.MAILTRAP_API_TOKEN || '';
-const MAILTRAP_INBOX_ID = process.env.MAILTRAP_INBOX_ID || '';
+const MAILTRAP_INBOX_ID = process.env.MAILTRAP_INBOX_ID || ''; // only needed for sandbox
+
+const IS_SANDBOX = MAILTRAP_API_URL.includes('sandbox');
 
 const getFromInfo = async () => {
   const s = await getSettings();
@@ -17,10 +19,15 @@ const invalidateTransporter = () => {};
 
 /**
  * Send an email via Mailtrap HTTP API. Returns true on success, false on failure.
+ * Supports both sandbox (Api-Token + inbox ID) and production (Bearer token).
  */
 const sendEmail = async (to, subject, html, attachments = []) => {
-  if (!MAILTRAP_API_TOKEN || !MAILTRAP_INBOX_ID) {
+  if (!MAILTRAP_API_TOKEN) {
     logger.warn(`Email skipped (Mailtrap not configured): to=${to} subject=${subject}`);
+    return false;
+  }
+  if (IS_SANDBOX && !MAILTRAP_INBOX_ID) {
+    logger.warn(`Email skipped (sandbox inbox ID missing): to=${to} subject=${subject}`);
     return false;
   }
   try {
@@ -39,12 +46,21 @@ const sendEmail = async (to, subject, html, attachments = []) => {
         disposition: 'attachment',
       }));
     }
-    const res = await fetch(`${MAILTRAP_API_URL}/api/send/${MAILTRAP_INBOX_ID}`, {
+
+    const url = IS_SANDBOX
+      ? `${MAILTRAP_API_URL}/api/send/${MAILTRAP_INBOX_ID}`
+      : `${MAILTRAP_API_URL}/api/send`;
+
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(IS_SANDBOX
+        ? { 'Api-Token': MAILTRAP_API_TOKEN }
+        : { 'Authorization': `Bearer ${MAILTRAP_API_TOKEN}` }),
+    };
+
+    const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Api-Token': MAILTRAP_API_TOKEN,
-      },
+      headers,
       body: JSON.stringify(body),
     });
     if (!res.ok) {
