@@ -37,7 +37,12 @@ docker compose -f docker-compose.prod.yml exec -T postgres \
 
 echo "[deploy] Checking backend container status..."
 sleep 5
-docker compose -f docker-compose.prod.yml logs --tail=30 backend 2>&1 || true
+echo "[deploy] Container state:"
+docker inspect --format='{{.State.Status}} exit={{.State.ExitCode}} err={{.State.Error}}' elimuai_backend 2>&1 || true
+echo "[deploy] Backend logs:"
+docker logs elimuai_backend --tail=50 2>&1 || true
+echo "[deploy] All container states:"
+docker compose -f docker-compose.prod.yml ps 2>&1 || true
 
 echo "[deploy] Pruning old images"
 docker image prune -f >/dev/null 2>&1 || true
