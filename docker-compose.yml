@@ -45,7 +45,7 @@ services:
       MAILTRAP_API_TOKEN: d3843c18539bd2304c3bf8b4d758e668
       MAILTRAP_INBOX_ID: 4046638
       SMTP_FROM_NAME: ElimuAI
-      SMTP_FROM_EMAIL: noreply@elimuai.com
+      SMTP_FROM_EMAIL: noreply@adila.legal
     depends_on:
       postgres:
         condition: service_healthy

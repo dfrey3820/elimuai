@@ -11,7 +11,7 @@ const getFromInfo = async () => {
   const s = await getSettings();
   return {
     name: s.smtp_from_name || process.env.SMTP_FROM_NAME || 'ElimuAI',
-    email: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || 'noreply@elimuai.com',
+    email: s.smtp_from_email || process.env.SMTP_FROM_EMAIL || 'noreply@adila.legal',
   };
 };
 
