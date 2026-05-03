@@ -144,3 +144,52 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   expires_at  TIMESTAMP NOT NULL,
   created_at  TIMESTAMP DEFAULT NOW()
 );
+
+-- ─── USER SESSIONS ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_sessions (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_jti     VARCHAR(64) UNIQUE NOT NULL,
+  ip_address    INET,
+  user_agent    TEXT,
+  is_revoked    BOOLEAN DEFAULT FALSE,
+  last_active   TIMESTAMP DEFAULT NOW(),
+  expires_at    TIMESTAMP NOT NULL,
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user     ON user_sessions(user_id, is_revoked);
+CREATE INDEX IF NOT EXISTS idx_sessions_jti      ON user_sessions(token_jti);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires  ON user_sessions(expires_at);
+
+-- ─── OTP TOKENS ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS otp_tokens (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+  email       VARCHAR(255) NOT NULL,
+  code        VARCHAR(6) NOT NULL,
+  purpose     VARCHAR(30) NOT NULL DEFAULT 'verify_email',
+  attempts    INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 5,
+  verified    BOOLEAN DEFAULT FALSE,
+  expires_at  TIMESTAMP NOT NULL,
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_otp_email ON otp_tokens(email, purpose, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_otp_user ON otp_tokens(user_id, purpose);
+
+-- ─── USERS: add missing columns for auth flow ───────────────────────────────
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded BOOLEAN DEFAULT FALSE;
+
+-- ─── SUBSCRIPTION NOTIFICATIONS ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS subscription_notifications (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notification_type VARCHAR(30) NOT NULL,
+  days_before       INTEGER DEFAULT 0,
+  channel           VARCHAR(10) DEFAULT 'email',
+  sent_email        BOOLEAN DEFAULT FALSE,
+  sent_sms          BOOLEAN DEFAULT FALSE,
+  created_at        TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_sub_notif_user ON subscription_notifications(user_id, notification_type);

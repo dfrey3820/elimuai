@@ -416,6 +416,45 @@ CREATE TABLE refresh_tokens (
   created_at  TIMESTAMP DEFAULT NOW()
 );
 
+-- ─── USER SESSIONS ───────────────────────────────────────────────────────────
+CREATE TABLE user_sessions (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_jti     VARCHAR(64) UNIQUE NOT NULL,
+  ip_address    INET,
+  user_agent    TEXT,
+  is_revoked    BOOLEAN DEFAULT FALSE,
+  last_active   TIMESTAMP DEFAULT NOW(),
+  expires_at    TIMESTAMP NOT NULL,
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+
+-- ─── OTP TOKENS ──────────────────────────────────────────────────────────────
+CREATE TABLE otp_tokens (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+  email       VARCHAR(255) NOT NULL,
+  code        VARCHAR(6) NOT NULL,
+  purpose     VARCHAR(30) NOT NULL DEFAULT 'verify_email',
+  attempts    INTEGER DEFAULT 0,
+  max_attempts INTEGER DEFAULT 5,
+  verified    BOOLEAN DEFAULT FALSE,
+  expires_at  TIMESTAMP NOT NULL,
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+
+-- ─── SUBSCRIPTION NOTIFICATIONS ──────────────────────────────────────────────
+CREATE TABLE subscription_notifications (
+  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  notification_type VARCHAR(30) NOT NULL,
+  days_before       INTEGER DEFAULT 0,
+  channel           VARCHAR(10) DEFAULT 'email',
+  sent_email        BOOLEAN DEFAULT FALSE,
+  sent_sms          BOOLEAN DEFAULT FALSE,
+  created_at        TIMESTAMP DEFAULT NOW()
+);
+
 -- ─── INDEXES ─────────────────────────────────────────────────────────────────
 CREATE INDEX idx_users_school     ON users(school_id);
 CREATE INDEX idx_users_role       ON users(role);
@@ -430,6 +469,12 @@ CREATE INDEX idx_ai_sessions_user ON ai_sessions(user_id, created_at DESC);
 CREATE INDEX idx_payments_user    ON payments(user_id);
 CREATE INDEX idx_payments_status  ON payments(status);
 CREATE INDEX idx_notifications    ON notifications(user_id, is_read, created_at DESC);
+CREATE INDEX idx_sessions_user    ON user_sessions(user_id, is_revoked);
+CREATE INDEX idx_sessions_jti     ON user_sessions(token_jti);
+CREATE INDEX idx_sessions_expires ON user_sessions(expires_at);
+CREATE INDEX idx_otp_email        ON otp_tokens(email, purpose, created_at DESC);
+CREATE INDEX idx_otp_user         ON otp_tokens(user_id, purpose);
+CREATE INDEX idx_sub_notif_user   ON subscription_notifications(user_id, notification_type);
 
 -- ─── TRIGGERS — auto update updated_at ───────────────────────────────────────
 CREATE OR REPLACE FUNCTION update_updated_at_column()
