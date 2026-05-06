@@ -14,20 +14,14 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            echo "=== Current .env contents (masked) ==="
-            if [ -f /opt/elimuai/.env ]; then
-              echo "POSTGRES_DB=$(grep '^POSTGRES_DB=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "POSTGRES_USER=$(grep '^POSTGRES_USER=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "POSTGRES_PASSWORD=$(grep '^POSTGRES_PASSWORD=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "JWT_SECRET=$(grep '^JWT_SECRET=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "BACKEND_IMAGE=$(grep '^BACKEND_IMAGE=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "FRONTEND_IMAGE=$(grep '^FRONTEND_IMAGE=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "FRONTEND_URL=$(grep '^FRONTEND_URL=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' /opt/elimuai/.env | cut -d= -f2-)"
-              echo "=== Docker containers ==="
-              sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
-              echo "=== Backend logs (last 20 lines) ==="
-              sudo docker logs elimuai_backend --tail=20 2>&1 || echo "No backend container"
-            else
-              echo "NO .env FILE FOUND at /opt/elimuai/.env"
-            fi
+            echo "=== Docker containers ==="
+            sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>&1 || true
+            echo ""
+            echo "=== Env vars from RUNNING backend container ==="
+            sudo docker exec elimuai_backend env 2>/dev/null | grep -E "POSTGRES|JWT|DATABASE|FRONTEND_URL|ANTHROPIC|MAILTRAP|NODE_ENV|PORT" | sort || echo "Backend container not running"
+            echo ""
+            echo "=== Current .env file ==="
+            sudo cat /opt/elimuai/.env 2>/dev/null || echo "NO .env FILE"
+            echo ""
+            echo "=== Backend logs (last 30 lines) ==="
+            sudo docker logs elimuai_backend --tail=30 2>&1 || echo "No backend container"
