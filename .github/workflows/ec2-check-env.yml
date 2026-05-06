@@ -1,0 +1,33 @@
+name: EC2 Check Env
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read current .env from EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "=== Current .env contents (masked) ==="
+            if [ -f /opt/elimuai/.env ]; then
+              echo "POSTGRES_DB=$(grep '^POSTGRES_DB=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "POSTGRES_USER=$(grep '^POSTGRES_USER=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "POSTGRES_PASSWORD=$(grep '^POSTGRES_PASSWORD=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "JWT_SECRET=$(grep '^JWT_SECRET=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "BACKEND_IMAGE=$(grep '^BACKEND_IMAGE=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "FRONTEND_IMAGE=$(grep '^FRONTEND_IMAGE=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "FRONTEND_URL=$(grep '^FRONTEND_URL=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "ANTHROPIC_API_KEY=$(grep '^ANTHROPIC_API_KEY=' /opt/elimuai/.env | cut -d= -f2-)"
+              echo "=== Docker containers ==="
+              sudo docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+              echo "=== Backend logs (last 20 lines) ==="
+              sudo docker logs elimuai_backend --tail=20 2>&1 || echo "No backend container"
+            else
+              echo "NO .env FILE FOUND at /opt/elimuai/.env"
+            fi
