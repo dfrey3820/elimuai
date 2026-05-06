@@ -1,7 +1,7 @@
 const db = require('../config/database');
 const logger = require('../config/logger');
 
-const PLAN_DAILY_LIMITS = { free: 5, student: 999, family: 999, school: 999, enterprise: 9999 };
+const PLAN_DAILY_LIMITS = { free: 999, student: 999, family: 999, school: 999, enterprise: 9999 };
 
 const XP_REWARDS = {
   ai_question: 5, homework: 8, exam_complete: 20, exam_perfect: 50,
