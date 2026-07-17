@@ -33,9 +33,20 @@ export default function ElimuAI() {
   const [lang, setLang] = useState("en");
   const [user, setUser] = useState(null);
   const [billingEnabled, setBillingEnabled] = useState(true);
+  // Live subscription status fetched from the backend. Shape mirrors
+  // /api/payments/subscription-status. Null while loading.
+  const [subStatus, setSubStatus] = useState(null);
 
   useEffect(() => { let alive = true; if (!hasAuthToken()) return; apiGet("/api/users/profile").then((d) => { if (alive) setUser(d?.user || null); }).catch(() => {}); return () => { alive = false; }; }, []);
   useEffect(() => { apiGet("/api/payments/subscription-info").then((d) => { if (typeof d?.billingEnabled !== "undefined") setBillingEnabled(d.billingEnabled); }).catch(() => {}); }, []);
+  useEffect(() => {
+    let alive = true;
+    if (!hasAuthToken() || !user?.id) return;
+    apiGet("/api/payments/subscription-status")
+      .then((d) => { if (alive) setSubStatus(d || null); })
+      .catch(() => { if (alive) setSubStatus(null); });
+    return () => { alive = false; };
+  }, [user?.id]);
 
   useEffect(() => {
     if (user?.plan) setPlan(user.plan);
@@ -89,25 +100,34 @@ export default function ElimuAI() {
   );
 
   const renderScreen = () => {
-    if (role === "super_admin" || role === "admin" || role === "teacher" || role === "student" || role === "parent") return <SchoolAdmin lang={lang} user={user} onLogout={handleLogout} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} setPlan={setPlan} />;
+    if (role === "super_admin" || role === "admin" || role === "teacher" || role === "student" || role === "parent") return <SchoolAdmin lang={lang} user={user} setUser={setUser} onLogout={handleLogout} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} setPlan={setPlan} subStatus={subStatus} setActive={setActive} />;
     switch (active) {
-      case "Home": return <HomeScreen setActive={setActive} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} lang={lang} user={user} />;
-      case "Tutor": return <TutorScreen country={country} level={level} isOffline={isOffline} lang={lang} user={user} />;
+      case "Home": return <HomeScreen setActive={setActive} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} lang={lang} user={user} subStatus={subStatus} />;
+      case "Tutor": return <TutorScreen country={country} level={level} isOffline={isOffline} lang={lang} user={user} subStatus={subStatus} setActive={setActive} />;
       case "Exams": return <ExamScreen country={country} level={level} lang={lang} user={user} />;
-      case "Homework": return <HomeworkScreen country={country} level={level} isOffline={isOffline} lang={lang} user={user} />;
+      case "Homework": return <HomeworkScreen country={country} level={level} isOffline={isOffline} lang={lang} user={user} subStatus={subStatus} setActive={setActive} />;
       case "Rankings": return <LeaderboardScreen lang={lang} user={user} />;
       case "Progress": return <ProgressScreen country={country} level={level} lang={lang} user={user} />;
       case "Plans": return <PlansScreen plan={plan} setPlan={setPlan} lang={lang} user={user} />;
-      default: return <HomeScreen setActive={setActive} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} lang={lang} user={user} />;
+      default: return <HomeScreen setActive={setActive} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} lang={lang} user={user} subStatus={subStatus} />;
     }
   };
 
+  // Server-authoritative gating: when the backend explicitly says billing is
+  // enforced AND aiEnabled=false, block into the BillingScreen. Fall back to
+  // the local trial_expires heuristic while the status is still loading.
   const isTrialExpired = user && user.trial_expires && new Date(user.trial_expires) < new Date();
   const hasPaidPlan = user && user.plan && user.plan !== "free" && user.plan_expires && new Date(user.plan_expires) > new Date();
-  const isExempt = role === "admin" || role === "super_admin" || role === "teacher" || role === "student";
-  const mustPay = billingEnabled && user && isTrialExpired && !hasPaidPlan && !isExempt;
+  const isSchoolStudent = role === "student" && !!user?.school_id;
+  const isExempt = role === "admin" || role === "super_admin" || role === "teacher" || isSchoolStudent;
+  const localMustPay = billingEnabled && user && isTrialExpired && !hasPaidPlan && !isExempt;
+  const serverMustPay = subStatus && subStatus.billingEnabled && !subStatus.aiEnabled && subStatus.source === "expired";
+  const mustPay = serverMustPay || (subStatus == null && localMustPay);
 
-  const handlePaymentDone = () => { apiGet("/api/users/profile").then((d) => { if (d?.user) setUser(d.user); }).catch(() => {}); };
+  const handlePaymentDone = () => {
+    apiGet("/api/users/profile").then((d) => { if (d?.user) setUser(d.user); }).catch(() => {});
+    apiGet("/api/payments/subscription-status").then((d) => setSubStatus(d || null)).catch(() => {});
+  };
 
   if (mustPay) return <BillingScreen user={user} lang={lang} onPaid={handlePaymentDone} />;
 

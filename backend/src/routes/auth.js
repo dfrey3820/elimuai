@@ -58,7 +58,27 @@ router.post('/register', [
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
-  const { name, email, phone, password, role, country = 'KE', language = 'en', grade_level, school_id, curriculum, school_name } = req.body;
+  const { name, email, phone, password, role, country = 'KE', language = 'en', grade_level, school_id, curriculum, school_name, signup_token } = req.body;
+
+  // Guard admin self-registration. Without this, any client can POST role:"admin"
+  // and create a fake school + admin account. When SCHOOL_SIGNUP_TOKEN is set,
+  // the request must include a matching signup_token. Otherwise a warning is
+  // logged and admin signup is allowed (for backwards compatibility with existing UI).
+  if (role === 'admin') {
+    if (!school_name || !String(school_name).trim()) {
+      return res.status(400).json({ error: 'school_name is required when registering as a school admin.' });
+    }
+    const requiredToken = process.env.SCHOOL_SIGNUP_TOKEN;
+    if (requiredToken) {
+      if (!signup_token || signup_token !== requiredToken) {
+        logger.warn(`Blocked admin signup attempt from ${req.ip} for email=${email}`);
+        return res.status(403).json({ error: 'A valid school signup token is required to register as a school admin.' });
+      }
+    } else {
+      logger.warn(`Admin self-signup allowed (SCHOOL_SIGNUP_TOKEN not set) — email=${email}, ip=${req.ip}`);
+    }
+  }
+
   try {
     // Check if email already exists and is verified
     const { rows: existing } = await db.query(

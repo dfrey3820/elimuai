@@ -47,6 +47,11 @@ export default function PlansScreen({ plan, setPlan, lang, user }) {
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
   const userRole = (user?.role === "admin" || user?.role === "super_admin") ? "school" : (user?.role || "student");
+  // Only show the plan matching the user's role (school admins → School only,
+  // parents → Family only, students → Student Pro only, teachers → School).
+  const PLAN_FOR_ROLE = { student: "student", parent: "family", teacher: "school", school: "school" };
+  const allowedPlanId = PLAN_FOR_ROLE[userRole] || userRole;
+  const visiblePlans = PLANS.filter((p) => p.id === allowedPlanId);
   useEffect(() => { apiGet("/api/payments/subscription-info").then((d) => setSubInfo(d)).catch(() => {}); if (hasAuthToken()) { apiGet("/api/payments/invoices").then((d) => setInvoices(d?.invoices || [])).catch(() => {}); apiGet("/api/payments/history").then((d) => setPayments(d?.payments || [])).catch(() => {}); } }, []);
   const CYCLE_LABELS = { monthly: { en: "Monthly", sw: "Kila Mwezi" }, quarterly: { en: "Quarterly", sw: "Robo Mwaka" }, semi_annual: { en: "Semi-Annual", sw: "Nusu Mwaka" }, annual: { en: "Annual", sw: "Kila Mwaka" } };
   return (
@@ -63,6 +68,7 @@ export default function PlansScreen({ plan, setPlan, lang, user }) {
         })}
       </div>
       {PLANS.map((p) => {
+        if (!visiblePlans.some((v) => v.id === p.id)) return null;
         const prc = subInfo?.pricing?.[p.id === "family" ? "parent" : p.id]?.[cycle];
         const displayPrice = prc?.total || p.price * ({ monthly: 1, quarterly: 3, semi_annual: 6, annual: 12 }[cycle] || 1);
         const PlanIcon = PLAN_ICONS[p.id] || GraduationCap;

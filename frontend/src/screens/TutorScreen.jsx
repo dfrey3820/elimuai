@@ -6,9 +6,9 @@ import { apiPost } from "@/utils/api";
 import { CURRICULA } from "@/data/constants";
 import { OFFLINE_LESSONS } from "@/shared/constants";
 import { Spinner, Card, Badge, SecTitle, SubjectPills } from "@/components/ui";
-import { Bot, Send, WifiOff } from "lucide-react";
+import { Bot, Send, WifiOff, Download, Check, Lock } from "lucide-react";
 
-export default function TutorScreen({ country, level, isOffline, lang, user }) {
+export default function TutorScreen({ country, level, isOffline, lang, user, subStatus, setActive }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
   const curr = CURRICULA[country];
   const subjects = curr.levels[level] || [];
@@ -16,10 +16,19 @@ export default function TutorScreen({ country, level, isOffline, lang, user }) {
   const [msgs, setMsgs] = useState([{ role: "assistant", text: lang === "sw" ? `Habari! Mimi ni mwalimu wako wa ElimuAI kwa **${level}** chini ya **${curr.name}**.\n\nNiulize chochote kuhusu ${subject}. Nitaeleza hatua kwa hatua na mifano kutoka Afrika Mashariki!` : `Hi! I'm your ElimuAI tutor for **${level}** under the **${curr.name}**.\n\nAsk me anything about ${subject}. I'll explain step-by-step with East African examples!` }]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // Tracks which assistant messages have been saved as offline lessons — keyed by message index.
+  const [savedIdx, setSavedIdx] = useState({});
+  const [savingIdx, setSavingIdx] = useState(null);
+  // Set to true if the server returns 402 — AI is locked until the user upgrades.
+  const [locked, setLocked] = useState(false);
   const endRef = useRef();
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
+  useEffect(() => {
+    // Pre-lock based on subscription status so users don't waste a keystroke.
+    if (subStatus && subStatus.billingEnabled && subStatus.aiEnabled === false) setLocked(true);
+  }, [subStatus?.aiEnabled, subStatus?.billingEnabled]);
   const send = async () => {
-    if (!input.trim() || loading || isOffline) return;
+    if (!input.trim() || loading || isOffline || locked) return;
     const q = input.trim(); setInput("");
     setMsgs((p) => [...p, { role: "user", text: q }]); setLoading(true);
     const history = msgs.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.text }));
@@ -28,9 +37,37 @@ export default function TutorScreen({ country, level, isOffline, lang, user }) {
       const data = await apiPost("/api/ai/tutor", { messages: history, subject });
       setMsgs((p) => [...p, { role: "assistant", text: data?.reply || (lang === "sw" ? "Samahani, tatizo la mtandao." : "Sorry, connection issue.") }]);
     } catch (err) {
-      const msg = err?.status === 401 ? (lang === "sw" ? "Tafadhali ingia ili kutumia AI." : "Please sign in to use AI.") : (err?.message || "Error");
-      setMsgs((p) => [...p, { role: "assistant", text: msg }]);
+      if (err?.status === 402) {
+        setLocked(true);
+      } else {
+        const msg = err?.status === 401 ? (lang === "sw" ? "Tafadhali ingia ili kutumia AI." : "Please sign in to use AI.") : (err?.message || "Error");
+        setMsgs((p) => [...p, { role: "assistant", text: msg }]);
+      }
     } finally { setLoading(false); }
+  };
+  // Save an assistant reply (and the preceding user question) as a personal offline lesson.
+  const saveAsLesson = async (assistantIdx) => {
+    if (savedIdx[assistantIdx] || savingIdx === assistantIdx) return;
+    // Find the most recent user message before this assistant reply.
+    let questionText = "";
+    for (let i = assistantIdx - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") { questionText = msgs[i].text; break; }
+    }
+    if (!questionText) return; // Skip the greeting message that has no preceding question.
+    setSavingIdx(assistantIdx);
+    try {
+      await apiPost("/api/curriculum/offline-lessons/from-tutor", {
+        question: questionText,
+        answer: msgs[assistantIdx].text,
+        subject,
+      });
+      setSavedIdx((prev) => ({ ...prev, [assistantIdx]: true }));
+    } catch (err) {
+      // Surface the error inline as a system message instead of alert().
+      setMsgs((p) => [...p, { role: "assistant", text: (lang === "sw" ? "Samahani, imeshindwa kuhifadhi somo: " : "Sorry, failed to save lesson: ") + (err?.message || "Error") }]);
+    } finally {
+      setSavingIdx(null);
+    }
   };
   if (isOffline) return (
     <div className="px-5 pt-6 pb-[100px]">
@@ -57,19 +94,65 @@ export default function TutorScreen({ country, level, isOffline, lang, user }) {
         <SubjectPills subjects={subjects} active={subject} setActive={setSubject} />
       </div>
       <div className="flex-1 overflow-y-auto px-4 pt-3.5 flex flex-col gap-2.5 pb-[100px] bg-slate-50">
-        {msgs.map((m, i) => (
-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-            {m.role === "assistant" && <div className="w-7 h-7 rounded-full bg-gradient-primary flex items-center justify-center mr-1.5 shrink-0 self-end"><Bot size={14} color="#fff" /></div>}
-            <div className={`max-w-[76%] px-3.5 py-2.5 text-[13px] leading-relaxed font-body font-semibold whitespace-pre-wrap shadow-sm ${m.role === "user" ? "rounded-[16px_16px_4px_16px] bg-gradient-primary text-white border-none" : "rounded-[16px_16px_16px_4px] bg-white text-slate-900 border border-slate-200"}`}>{m.text}</div>
-          </div>
-        ))}
+        {msgs.map((m, i) => {
+          // Only assistant replies that follow a user question can be saved
+          // (the greeting message has no prior question).
+          const hasPriorQuestion = m.role === "assistant" && msgs.slice(0, i).some((p) => p.role === "user");
+          return (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              {m.role === "assistant" && <div className="w-7 h-7 rounded-full bg-gradient-primary flex items-center justify-center mr-1.5 shrink-0 self-end"><Bot size={14} color="#fff" /></div>}
+              <div className="flex flex-col items-start max-w-[76%]">
+                <div className={`w-full px-3.5 py-2.5 text-[13px] leading-relaxed font-body font-semibold whitespace-pre-wrap shadow-sm ${m.role === "user" ? "rounded-[16px_16px_4px_16px] bg-gradient-primary text-white border-none" : "rounded-[16px_16px_16px_4px] bg-white text-slate-900 border border-slate-200"}`}>{m.text}</div>
+                {hasPriorQuestion && (
+                  <button
+                    onClick={() => saveAsLesson(i)}
+                    disabled={!!savedIdx[i] || savingIdx === i}
+                    className={`mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-body font-bold border transition-colors ${savedIdx[i] ? "bg-emerald-50 border-emerald-200 text-emerald-600 cursor-default" : "bg-white border-slate-200 text-purple-600 hover:bg-purple-50 hover:border-purple-200 cursor-pointer"}`}
+                  >
+                    {savedIdx[i] ? (
+                      <><Check size={11} /> {lang === "sw" ? "Imehifadhiwa" : "Saved offline"}</>
+                    ) : savingIdx === i ? (
+                      <>{lang === "sw" ? "Inahifadhi..." : "Saving..."}</>
+                    ) : (
+                      <><Download size={11} /> {lang === "sw" ? "Hifadhi kama somo" : "Save as lesson"}</>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
         {loading && <div className="flex gap-1.5"><div className="w-7 h-7 rounded-full bg-gradient-primary flex items-center justify-center"><Bot size={14} color="#fff" /></div><Card className="px-3.5 py-2"><Spinner /></Card></div>}
         <div ref={endRef} />
       </div>
-      <div className="px-3 py-2 bg-white border-t border-slate-200 flex gap-2 items-end fixed bottom-[62px] left-0 right-0 max-w-[520px] mx-auto box-border">
-        <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`${t("type_question")} (${subject})`} rows={1} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none" />
-        <button onClick={send} disabled={loading} className={`w-10 h-10 rounded-xl border-none cursor-pointer bg-gradient-primary flex items-center justify-center ${loading ? "opacity-50" : ""}`}><Send size={16} color="#fff" /></button>
-      </div>
+      {locked ? (
+        <div className="px-4 py-3 bg-white border-t border-red-200 fixed bottom-[62px] left-0 right-0 max-w-[520px] mx-auto box-border">
+          <div className="flex items-start gap-2.5 bg-rose-50 border border-red-200 rounded-xl px-3 py-2.5">
+            <Lock size={18} className="text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-red-500 text-[12px] font-body font-extrabold mb-0.5 mt-0">
+                {lang === "sw" ? "AI imezimwa" : "AI is locked"}
+              </p>
+              <p className="text-slate-600 text-[11px] font-body m-0 mb-2">
+                {lang === "sw"
+                  ? "Kipindi cha bure kimeisha. Amilisha mpango ili kuendelea."
+                  : "Your free trial has ended. Activate a plan to continue."}
+              </p>
+              <button
+                onClick={() => setActive && setActive("Plans")}
+                className="py-1.5 px-3.5 rounded-lg bg-red-500 text-white text-[11px] font-body font-extrabold border-none cursor-pointer hover:bg-red-600"
+              >
+                {lang === "sw" ? "Amilisha mpango" : "Activate plan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="px-3 py-2 bg-white border-t border-slate-200 flex gap-2 items-end fixed bottom-[62px] left-0 right-0 max-w-[520px] mx-auto box-border">
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`${t("type_question")} (${subject})`} rows={1} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none" />
+          <button onClick={send} disabled={loading} className={`w-10 h-10 rounded-xl border-none cursor-pointer bg-gradient-primary flex items-center justify-center ${loading ? "opacity-50" : ""}`}><Send size={16} color="#fff" /></button>
+        </div>
+      )}
     </div>
   );
 }

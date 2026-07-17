@@ -56,16 +56,30 @@ const handlePaymentResult = async (result) => {
 
     const { user_id, plan, billing_cycle, invoice_id } = rows[0];
 
-    // Calculate plan duration
+    // Calculate plan duration using calendar months (annual = 365 days, not 360)
     const months = CYCLE_MONTHS[billing_cycle] || 1;
-    const duration = months * 30;
-    const expiresAt = new Date(Date.now() + duration * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date();
+    expiresAt.setMonth(expiresAt.getMonth() + months);
 
     // Activate user plan
     await db.query(
       "UPDATE users SET plan = $1, plan_expires = $2 WHERE id = $3",
       [plan, expiresAt, user_id]
     );
+
+    // If this is a school-level subscription, also extend the school itself
+    // so all teachers/students inherit the paid plan.
+    if (plan === 'school') {
+      const { rowCount: schoolRows } = await db.query(
+        `UPDATE schools SET plan = 'school', plan_expires = $1
+           WHERE id = (SELECT school_id FROM users WHERE id = $2)
+             AND school_id IS NOT NULL`,
+        [expiresAt, user_id]
+      );
+      if (schoolRows === 0) {
+        logger.warn(`Payment ${paymentId}: school plan purchased but user ${user_id} has no school_id`);
+      }
+    }
 
     // Mark invoice as paid
     if (invoice_id) {

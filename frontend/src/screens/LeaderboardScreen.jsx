@@ -3,41 +3,79 @@ import { useState, useEffect } from "react";
 import { C } from "@/theme";
 import { translations } from "@/i18n/translations";
 import { apiGet } from "@/utils/api";
-import { FLAG, LEADERBOARD_MOCK } from "@/shared/constants";
+import { FLAG } from "@/shared/constants";
 import { Card, Badge, SecTitle } from "@/components/ui";
 import { Trophy, FileText, Flame, Award } from "lucide-react";
 
 export default function LeaderboardScreen({ lang, user }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
-  const [scope, setScope] = useState("global");
+  // Students with an assigned class default to the "Class" leaderboard so they
+  // see their direct peers first. Everyone else starts on the global board.
+  const isStudent = user?.role === "student";
+  const [scope, setScope] = useState(isStudent && user?.grade_level ? "class" : "global");
   const [period, setPeriod] = useState("weekly");
-  const [entries, setEntries] = useState(LEADERBOARD_MOCK);
-  const [userEntry, setUserEntry] = useState(LEADERBOARD_MOCK.find((e) => e.is_current));
+  const [entries, setEntries] = useState([]);
+  const [userEntry, setUserEntry] = useState(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     let alive = true;
+    setLoading(true);
     apiGet("/api/leaderboard", { scope, period: period === "all_time" ? "all_time" : period, limit: 50 }).then((d) => {
       if (!alive) return;
       const rows = d?.leaderboard;
-      if (Array.isArray(rows) && rows.length) {
-        const mapped = rows.map((r) => ({ rank: r.rank || 0, name: r.name || "Student", xp: r.xp || 0, streak: r.streak || 0, tests: r.tests_taken || 0, country: r.country || "KE", is_current: !!r.is_current_user, avatar: (r.name || "S").slice(0, 1).toUpperCase() }));
+      if (Array.isArray(rows)) {
+        const mapped = rows.map((r, idx) => ({
+          rank: r.rank || idx + 1,
+          name: r.name || "Student",
+          xp: r.xp || 0,
+          streak: r.streak || 0,
+          tests: r.tests_taken || 0,
+          country: r.country || "KE",
+          grade_level: r.grade_level || null,
+          is_current: !!r.is_current_user,
+          avatar: (r.name || "S").slice(0, 1).toUpperCase(),
+        }));
         setEntries(mapped);
         const current = mapped.find((e) => e.is_current);
         if (current) setUserEntry(current);
-        else if (d?.userRank) setUserEntry({ rank: d.userRank.rank || 0, name: lang === "sw" ? "Wewe" : "You", xp: d.userRank.xp || 0, streak: d.userRank.streak || 0, tests: 0, country: user?.country || "KE", is_current: true, avatar: "Y" });
+        else if (d?.userRank) setUserEntry({ rank: d.userRank.rank || 0, name: lang === "sw" ? "Wewe" : "You", xp: d.userRank.xp || 0, streak: d.userRank.streak || 0, tests: 0, country: user?.country || "KE", is_current: true, avatar: (user?.name || "Y").slice(0, 1).toUpperCase() });
+        else setUserEntry(null);
+      } else {
+        setEntries([]);
+        setUserEntry(null);
       }
-    }).catch(() => {});
+    }).catch(() => { if (alive) { setEntries([]); setUserEntry(null); } })
+      .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [scope, period, lang, user?.country]);
-  const displayEntries = entries.length ? entries : LEADERBOARD_MOCK;
-  const displayUser = userEntry || LEADERBOARD_MOCK.find((e) => e.is_current);
+  }, [scope, period, lang, user?.country, user?.id]);
+  const displayEntries = entries;
+  const displayUser = userEntry;
   const MEDAL_COLORS = { 1: C.gold, 2: "#C0C0C0", 3: "#CD7F32" };
+  // Scope tabs — students see "Class" first (only if they have a class assigned);
+  // teachers/admins keep the traditional Global / Country / School layout.
+  const scopeTabs = isStudent && user?.grade_level
+    ? [
+        { k: "class", l: lang === "sw" ? "Darasa Langu" : "My Class" },
+        { k: "school", l: t("school") },
+        { k: "country", l: t("country") },
+        { k: "global", l: t("global") },
+      ]
+    : [
+        { k: "global", l: t("global") },
+        { k: "country", l: t("country") },
+        { k: "school", l: t("school") },
+      ];
   return (
     <div className="px-[18px] pt-[22px] pb-[100px]">
       <h2 className="text-slate-900 text-[22px] mb-1 mt-0 font-heading font-black flex items-center gap-2"><Trophy size={22} className="text-yellow-500" /> {t("rankings")}</h2>
-      <p className="text-slate-400 text-xs mb-3.5 mt-0 font-body">{FLAG.KE} Kenya · {FLAG.TZ} Tanzania · {FLAG.UG} Uganda</p>
-      <div className="flex gap-1.5 mb-2.5">
-        {[{ k: "global", l: t("global") }, { k: "country", l: t("country") }, { k: "school", l: t("school") }].map((o) => (
-          <button key={o.k} onClick={() => setScope(o.k)} className={`flex-1 py-[7px] rounded-[10px] border-none cursor-pointer text-[11px] font-body font-extrabold ${scope === o.k ? "bg-purple-600 text-white" : "bg-slate-50 text-slate-400"}`}>{o.l}</button>
+      <p className="text-slate-400 text-xs mb-3.5 mt-0 font-body">
+        {scope === "class" && user?.grade_level
+          ? (lang === "sw" ? `Wanafunzi wenzako wa ${user.grade_level}` : `Your ${user.grade_level} classmates`)
+          : `${FLAG.KE} Kenya · ${FLAG.TZ} Tanzania · ${FLAG.UG} Uganda`}
+      </p>
+      <div className="flex gap-1.5 mb-2.5 flex-wrap">
+        {scopeTabs.map((o) => (
+          <button key={o.k} onClick={() => setScope(o.k)} className={`flex-1 min-w-[70px] py-[7px] rounded-[10px] border-none cursor-pointer text-[11px] font-body font-extrabold ${scope === o.k ? "bg-purple-600 text-white" : "bg-slate-50 text-slate-400"}`}>{o.l}</button>
         ))}
       </div>
       <div className="flex gap-1.5 mb-4">
@@ -58,8 +96,22 @@ export default function LeaderboardScreen({ lang, user }) {
         </Card>
       )}
       <SecTitle>{t("top_learners")}</SecTitle>
-      {displayEntries.map((e, idx) => (
-        <div key={e.rank} className={`rounded-xl py-[11px] px-3.5 mb-2 flex items-center gap-2.5 shadow-sm animate-fadeIn border ${e.is_current ? "bg-purple-50 border-purple-600" : "bg-white border-slate-200"}`} style={{ animationDelay: `${idx * 0.04}s` }}>
+      {loading ? (
+        <p className="text-slate-400 text-xs font-body">Loading...</p>
+      ) : displayEntries.length === 0 ? (
+        <Card className="text-center py-6">
+          <Trophy size={32} className="text-slate-300 mx-auto mb-2" />
+          <p className="text-slate-900 text-[13px] font-body font-black mb-1 mt-0">
+            {scope === "class"
+              ? (lang === "sw" ? "Bado hakuna alama katika darasa lako" : "No class scores yet")
+              : (lang === "sw" ? "Bado hakuna alama" : "No entries yet")}
+          </p>
+          <p className="text-slate-400 text-[11px] font-body m-0">
+            {lang === "sw" ? "Anza kujifunza ili kupata XP na kuonekana hapa." : "Start learning to earn XP and appear here."}
+          </p>
+        </Card>
+      ) : displayEntries.map((e, idx) => (
+        <div key={`${e.rank}-${idx}`} className={`rounded-xl py-[11px] px-3.5 mb-2 flex items-center gap-2.5 shadow-sm animate-fadeIn border ${e.is_current ? "bg-purple-50 border-purple-600" : "bg-white border-slate-200"}`} style={{ animationDelay: `${idx * 0.04}s` }}>
           <div className="w-8 text-center shrink-0">
             {MEDAL_COLORS[e.rank] ? <Award size={20} color={MEDAL_COLORS[e.rank]} fill={MEDAL_COLORS[e.rank]} /> : <span className="text-slate-400 font-body font-black text-sm">#{e.rank}</span>}
           </div>

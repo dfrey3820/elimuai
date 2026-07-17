@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Legend } from "recharts";
 import { C } from "@/theme";
 import { translations } from "@/i18n/translations";
-import { apiPost, apiGet, apiDelete } from "@/utils/api";
+import { apiPost, apiGet, apiDelete, apiPatch } from "@/utils/api";
 import { hasAuthToken, getAuthHeader, getAuthToken } from "@/utils/auth";
 import { CURRICULA } from "@/data/constants";
 import { Spinner, Card, Badge, SecTitle } from "@/components/ui";
@@ -15,6 +15,7 @@ import ExamScreen from "@/screens/ExamScreen";
 import LeaderboardScreen from "@/screens/LeaderboardScreen";
 import ProgressScreen from "@/screens/ProgressScreen";
 import PlansScreen from "@/screens/PlansScreen";
+import LessonsManager from "@/screens/LessonsManager";
 import {
   Home, Bot, FileText, BookOpen, BarChart3, Trophy, CreditCard,
   GraduationCap, Users, User, Heart, Settings, MessageSquare,
@@ -23,13 +24,24 @@ import {
   Shield, Key, Mail, Download, TrendingUp, Award,
   Zap, Plus, Edit3, Trash2,
   ChevronRight, AlertTriangle,
-  Search, Rocket,
+  Search, Rocket, Eye, RefreshCw, UserX, UserCheck,
 } from "lucide-react";
 const SettingsIcon = Settings;
 
 const API_BASE = typeof window !== "undefined" ? (process.env.NEXT_PUBLIC_API_BASE_URL || "") : "";
 
-function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLevel, isOffline, plan, setPlan }) {
+// CURRICULA is keyed by country name ("Kenya", "Tanzania", "Uganda").
+// The user record may carry a curriculum code ("CBC", "NECTA", "NCDC") or the country name itself,
+// so resolve to the correct CURRICULA key with sensible fallbacks.
+const CURRICULUM_CODE_TO_COUNTRY = { CBC: "Kenya", NECTA: "Tanzania", NCDC: "Uganda" };
+function resolveCurriculumKey(country, curriculum) {
+  if (country && CURRICULA?.[country]) return country;
+  const code = (curriculum || "").toUpperCase();
+  if (CURRICULUM_CODE_TO_COUNTRY[code]) return CURRICULUM_CODE_TO_COUNTRY[code];
+  return "Kenya";
+}
+
+function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level, setLevel, isOffline, plan, setPlan, subStatus, setActive }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
   const isSuperAdmin = user?.role === "super_admin";
   const isTeacher = user?.role === "teacher";
@@ -51,20 +63,13 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
   ]);
   const [schoolStats, setSchoolStats] = useState(null);
   const [studentsPage, setStudentsPage] = useState(1);
-  const teachers = [
-    { name: "Mr. Kamau", subject: "Mathematics", classes: 3, students: 95 },
-    { name: "Ms. Wanjiku", subject: "English", classes: 2, students: 62 },
-    { name: "Mr. Okonkwo", subject: "Science", classes: 4, students: 112 },
-  ];
-  const stats = {
-    total: schoolStats?.student_count ?? students.length,
-    active: students.filter((s) => s.status === "Active").length,
-    avg: Math.round(schoolStats?.avg_score ?? students.reduce((a, s) => a + s.score, 0) / Math.max(1, students.length)),
-    teachers: schoolStats?.teacher_count ?? teachers.length,
-  };
   useEffect(() => {
     let alive = true;
     if (!hasAuthToken() || !user?.school_id) return;
+    // Teachers get scoped data via /api/onboarding/students; only school admins
+    // (and above) may query school-wide stats/roster. Students/parents skip entirely.
+    const isAdminRole = user?.role === "admin" || user?.role === "super_admin";
+    if (!isAdminRole) return;
     apiGet(`/api/schools/${user.school_id}/stats`).then((d) => { if (alive) setSchoolStats(d?.school || null); }).catch(() => {});
     apiGet(`/api/schools/${user.school_id}/students`).then((d) => {
       if (!alive) return;
@@ -74,13 +79,13 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
       }
     }).catch(() => {});
     return () => { alive = false; };
-  }, [user?.school_id]);
+  }, [user?.school_id, user?.role]);
   const generateReport = async () => {
     setLoadingRep(true);
     try {
       const payload = isTeacher
         ? { classData: { students: realStudents.length ? realStudents : students, role: "teacher", teacher: user?.name } }
-        : { classData: { stats, students, teachers } };
+        : { classData: { stats, students, teachers: realTeachers } };
       const data = await apiPost("/api/ai/school-insights", payload); setAiReport(data?.insights || "");
     }
     catch (err) { setAiReport(err?.status === 401 ? (lang === "sw" ? "Tafadhali ingia." : "Please sign in.") : (err?.message || "Error")); }
@@ -98,6 +103,8 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
 
   const [settings, setSettings] = useState({}); const [settingsLoading, setSettingsLoading] = useState(false); const [settingsSaved, setSettingsSaved] = useState(false); const [settingsTab, setSettingsTab] = useState("mpesa");
   const [adminUsers, setAdminUsers] = useState([]); const [usersTotal, setUsersTotal] = useState(0); const [usersPage, setUsersPage] = useState(1); const [usersRoleFilter, setUsersRoleFilter] = useState(""); const [resetMsg, setResetMsg] = useState(""); const [usersLoading, setUsersLoading] = useState(false); const [usersSearch, setUsersSearch] = useState("");
+  // Subscriptions view
+  const [subs, setSubs] = useState([]); const [subsTotal, setSubsTotal] = useState(0); const [subsPage, setSubsPage] = useState(1); const [subsPlanFilter, setSubsPlanFilter] = useState(""); const [subsStatusFilter, setSubsStatusFilter] = useState(""); const [subsSearch, setSubsSearch] = useState(""); const [subsLoading, setSubsLoading] = useState(false);
   const [showResetPw, setShowResetPw] = useState(null); const [resetPwInput, setResetPwInput] = useState(""); const [resetPwSaving, setResetPwSaving] = useState(false);
   const [showCreateUser, setShowCreateUser] = useState(false); const [createUserForm, setCreateUserForm] = useState({ name: "", email: "", phone: "", password: "", role: "student", country: "KE", grade_level: "" }); const [createUserMsg, setCreateUserMsg] = useState(""); const [createUserSaving, setCreateUserSaving] = useState(false);
   const [viewUserLoading, setViewUserLoading] = useState(false); const [viewUserData, setViewUserData] = useState(null); const [userDetailTab, setUserDetailTab] = useState("overview");
@@ -120,7 +127,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
 
   // Teacher onboarding state
   const [showAddTeachers, setShowAddTeachers] = useState(false);
-  const [bulkTeachers, setBulkTeachers] = useState([{ name: "", email: "", subject: "" }]);
+  const [bulkTeachers, setBulkTeachers] = useState([{ name: "", email: "", subject: "", className: "", gradeLevel: "" }]);
   const [onboardTeacherResult, setOnboardTeacherResult] = useState(null);
   const [onboardTeacherLoading, setOnboardTeacherLoading] = useState(false);
   const [realTeachers, setRealTeachers] = useState([]);
@@ -129,12 +136,28 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
 
   // Student onboarding state (teacher flow)
   const [showAddStudentsWizard, setShowAddStudentsWizard] = useState(false);
-  const [bulkStudents, setBulkStudents] = useState([{ name: "", email: "" }]);
+  const [bulkStudents, setBulkStudents] = useState([{ name: "", email: "", grade_level: "" }]);
   const [onboardStudentResult, setOnboardStudentResult] = useState(null);
   const [onboardStudentLoading, setOnboardStudentLoading] = useState(false);
   const [realStudents, setRealStudents] = useState([]);
   const [realStudentsLoading, setRealStudentsLoading] = useState(false);
   const [realStudentsPage, setRealStudentsPage] = useState(1);
+
+  // Stats: teachers see only their own students (from realStudents); school
+  // admins / super admins see school-wide numbers from schoolStats.
+  const stats = isTeacher
+    ? {
+        total: realStudents.length,
+        active: realStudents.filter((s) => s.last_login && (Date.now() - new Date(s.last_login).getTime() < 30 * 24 * 60 * 60 * 1000)).length,
+        avg: realStudents.length ? Math.round(realStudents.reduce((a, s) => a + (s.total_xp || 0), 0) / realStudents.length) : 0,
+        teachers: 1,
+      }
+    : {
+        total: schoolStats?.student_count ?? students.length,
+        active: students.filter((s) => s.status === "Active").length,
+        avg: Math.round(schoolStats?.avg_score ?? students.reduce((a, s) => a + s.score, 0) / Math.max(1, students.length)),
+        teachers: schoolStats?.teacher_count ?? 0,
+      };
 
   // Class rankings state
   const [rankingsPeriod, setRankingsPeriod] = useState("weekly");
@@ -178,22 +201,44 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
 
   useEffect(() => {
     if (!hasAuthToken() || tab !== "Rankings") return;
+    // Students & parents render <LeaderboardScreen /> directly and do not need
+    // the admin-only school-rankings payload.
+    if (isStudent || isParent) return;
     if (isTeacher) {
+      // Teacher rankings are strictly their own students; the /api/onboarding/students
+      // endpoint already scopes by class_students -> classes.teacher_id.
       setRankingsLoading(true);
-      const params = { scope: "school", period: rankingsPeriod, limit: 100 };
-      if (user?.school_id) params.scopeId = user.school_id;
-      apiGet("/api/leaderboard", params).then((d) => setRankings(d?.leaderboard || [])).catch(() => setRankings([])).finally(() => setRankingsLoading(false));
+      apiGet("/api/onboarding/students")
+        .then((d) => {
+          const list = (d?.students || [])
+            .map((s, i) => ({
+              rank: i + 1,
+              user_id: s.id,
+              name: s.name,
+              grade_level: s.grade_level,
+              xp: s.total_xp || 0,
+              streak: s.streak_days || 0,
+              tests_taken: 0,
+              avg_score: 0,
+              is_current_user: false,
+            }))
+            .sort((a, b) => (b.xp - a.xp) || (b.streak - a.streak))
+            .map((r, i) => ({ ...r, rank: i + 1 }));
+          setRankings(list);
+        })
+        .catch(() => setRankings([]))
+        .finally(() => setRankingsLoading(false));
     } else {
       setSchoolRankingsLoading(true);
       apiGet("/api/leaderboard/school-rankings", { period: rankingsPeriod }).then((d) => setSchoolRankings(d)).catch(() => setSchoolRankings(null)).finally(() => setSchoolRankingsLoading(false));
     }
-  }, [tab, rankingsPeriod, user?.school_id]);
+  }, [tab, rankingsPeriod, user?.school_id, isTeacher]);
 
   useEffect(() => {
-    if (!hasAuthToken() || isParent || isStudent || (tab !== "Teachers" && tab !== "Overview")) return;
+    if (!hasAuthToken() || isParent || isStudent || isTeacher || (tab !== "Teachers" && tab !== "Overview")) return;
     setTeachersLoading(true);
     apiGet("/api/onboarding/teachers").then((d) => setRealTeachers(d?.teachers || [])).catch(() => {}).finally(() => setTeachersLoading(false));
-  }, [tab, isParent, isStudent]);
+  }, [tab, isParent, isStudent, isTeacher]);
 
   const handleOnboardTeachers = async () => {
     const valid = bulkTeachers.filter((t) => t.name.trim() && t.email.trim());
@@ -204,7 +249,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
       const data = await apiPost("/api/onboarding/teachers", { teachers: valid });
       setOnboardTeacherResult(data);
       if (data?.created?.length) {
-        setBulkTeachers([{ name: "", email: "", subject: "" }]);
+        setBulkTeachers([{ name: "", email: "", subject: "", className: "", gradeLevel: "" }]);
         apiGet("/api/onboarding/teachers").then((d) => setRealTeachers(d?.teachers || [])).catch(() => {});
       }
     } catch (err) {
@@ -212,6 +257,89 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
     } finally {
       setOnboardTeacherLoading(false);
     }
+  };
+
+  const [teacherActionMsg, setTeacherActionMsg] = useState("");
+  const [teacherBusy, setTeacherBusy] = useState(null); // { id, action }
+  const refreshTeachers = () => apiGet("/api/onboarding/teachers").then((d) => setRealTeachers(d?.teachers || [])).catch(() => {});
+  const toggleTeacherActive = async (tid) => {
+    setTeacherBusy({ id: tid, action: "toggle" }); setTeacherActionMsg("");
+    try {
+      const d = await apiPatch(`/api/onboarding/teachers/${tid}/toggle-active`);
+      setRealTeachers((p) => p.map((t) => t.id === tid ? { ...t, is_active: d?.is_active } : t));
+      setTeacherActionMsg(d?.is_active ? (lang === "sw" ? "Mwalimu amewashwa" : "Teacher activated") : (lang === "sw" ? "Mwalimu amezimwa" : "Teacher deactivated"));
+    } catch (e) {
+      setTeacherActionMsg(e?.message || "Failed");
+    } finally { setTeacherBusy(null); setTimeout(() => setTeacherActionMsg(""), 4000); }
+  };
+  const resendTeacherInvite = async (tid) => {
+    setTeacherBusy({ id: tid, action: "resend" }); setTeacherActionMsg("");
+    try {
+      const d = await apiPost(`/api/onboarding/teachers/${tid}/resend-invite`, {});
+      setTeacherActionMsg(d?.message || (lang === "sw" ? "Mwaliko umetumwa tena" : "Invite email resent"));
+      refreshTeachers();
+    } catch (e) {
+      setTeacherActionMsg(e?.message || "Failed");
+    } finally { setTeacherBusy(null); setTimeout(() => setTeacherActionMsg(""), 5000); }
+  };
+
+  // Student actions (view / resend / reset-pw / verify / toggle active)
+  const [studentActionMsg, setStudentActionMsg] = useState("");
+  const [studentBusy, setStudentBusy] = useState(null); // { id, action }
+  const [viewStudent, setViewStudent] = useState(null); // { student, activity, classes }
+  const [viewStudentLoading, setViewStudentLoading] = useState(false);
+  const [resetStudentPw, setResetStudentPw] = useState(null); // { name, email, temp_password }
+  const refreshStudents = () => apiGet("/api/onboarding/students").then((d) => setRealStudents(d?.students || [])).catch(() => {});
+  const openStudentDetail = async (sid) => {
+    setViewStudentLoading(true); setViewStudent({ loading: true });
+    try {
+      const d = await apiGet(`/api/onboarding/students/${sid}`);
+      setViewStudent(d);
+    } catch (e) {
+      setStudentActionMsg(e?.message || "Failed to load student");
+      setViewStudent(null);
+    } finally { setViewStudentLoading(false); }
+  };
+  const resendStudentInvite = async (sid) => {
+    setStudentBusy({ id: sid, action: "resend" }); setStudentActionMsg("");
+    try {
+      const d = await apiPost(`/api/onboarding/students/${sid}/resend-invite`, {});
+      setStudentActionMsg(d?.message || (lang === "sw" ? "Barua pepe imetumwa tena" : "Welcome email resent"));
+      refreshStudents();
+    } catch (e) {
+      setStudentActionMsg(e?.message || "Failed");
+    } finally { setStudentBusy(null); setTimeout(() => setStudentActionMsg(""), 5000); }
+  };
+  const resetStudentPassword = async (sid, name, email) => {
+    if (!confirm(lang === "sw" ? `Weka upya nenosiri la ${name}?` : `Reset password for ${name}?`)) return;
+    setStudentBusy({ id: sid, action: "reset" }); setStudentActionMsg("");
+    try {
+      const d = await apiPost(`/api/onboarding/students/${sid}/reset-password`, {});
+      setResetStudentPw({ name, email, temp_password: d?.temp_password });
+    } catch (e) {
+      setStudentActionMsg(e?.message || "Failed");
+    } finally { setStudentBusy(null); }
+  };
+  const verifyStudent = async (sid) => {
+    setStudentBusy({ id: sid, action: "verify" }); setStudentActionMsg("");
+    try {
+      await apiPost(`/api/onboarding/students/${sid}/verify`, {});
+      setRealStudents((p) => p.map((s) => s.id === sid ? { ...s, email_verified: true } : s));
+      setStudentActionMsg(lang === "sw" ? "Akaunti imethibitishwa" : "Account verified");
+    } catch (e) {
+      setStudentActionMsg(e?.message || "Failed");
+    } finally { setStudentBusy(null); setTimeout(() => setStudentActionMsg(""), 4000); }
+  };
+  const toggleStudentActive = async (sid, name, isActive) => {
+    if (isActive && !confirm(lang === "sw" ? `Zima ${name}?` : `Deactivate ${name}?`)) return;
+    setStudentBusy({ id: sid, action: "toggle" }); setStudentActionMsg("");
+    try {
+      const d = await apiPatch(`/api/onboarding/students/${sid}/toggle-active`);
+      setRealStudents((p) => p.map((s) => s.id === sid ? { ...s, is_active: d?.is_active } : s));
+      setStudentActionMsg(d?.is_active ? (lang === "sw" ? "Mwanafunzi amewashwa" : "Student activated") : (lang === "sw" ? "Mwanafunzi amezimwa" : "Student deactivated"));
+    } catch (e) {
+      setStudentActionMsg(e?.message || "Failed");
+    } finally { setStudentBusy(null); setTimeout(() => setStudentActionMsg(""), 4000); }
   };
 
   // Load students for teacher
@@ -223,7 +351,9 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
   }, [tab]);
 
   const handleOnboardStudents = async () => {
-    const valid = bulkStudents.filter((s) => s.name.trim() && s.email.trim());
+    const valid = bulkStudents
+      .filter((s) => s.name.trim() && s.email.trim())
+      .map((s) => ({ name: s.name.trim(), email: s.email.trim(), grade_level: s.grade_level?.trim() || null }));
     if (!valid.length) return;
     setOnboardStudentLoading(true);
     setOnboardStudentResult(null);
@@ -231,7 +361,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
       const data = await apiPost("/api/onboarding/students", { students: valid });
       setOnboardStudentResult(data);
       if (data?.created?.length) {
-        setBulkStudents([{ name: "", email: "" }]);
+        setBulkStudents([{ name: "", email: "", grade_level: "" }]);
         apiGet("/api/onboarding/students").then((d) => setRealStudents(d?.students || [])).catch(() => {});
       }
     } catch (err) {
@@ -259,6 +389,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
 
   useEffect(() => { if (!hasAuthToken() || tab !== "Settings") return; setSettingsLoading(true); apiGet("/api/admin/settings").then((d) => setSettings(d?.settings || {})).catch(() => {}).finally(() => setSettingsLoading(false)); }, [tab]);
   useEffect(() => { if (!hasAuthToken() || tab !== "Users") return; setUsersLoading(true); const params = { page: usersPage, limit: 20 }; if (usersRoleFilter) params.role = usersRoleFilter; if (usersSearch) params.search = usersSearch; apiGet("/api/admin/users", params).then((d) => { setAdminUsers(d?.users || []); setUsersTotal(d?.total || 0); }).catch(() => {}).finally(() => setUsersLoading(false)); }, [tab, usersPage, usersRoleFilter, usersSearch]);
+  useEffect(() => { if (!hasAuthToken() || tab !== "Subscriptions") return; setSubsLoading(true); const params = { page: subsPage, limit: 20 }; if (subsPlanFilter) params.plan = subsPlanFilter; if (subsStatusFilter) params.status = subsStatusFilter; if (subsSearch) params.search = subsSearch; apiGet("/api/admin/users", params).then((d) => { setSubs(d?.users || []); setSubsTotal(d?.total || 0); }).catch(() => {}).finally(() => setSubsLoading(false)); }, [tab, subsPage, subsPlanFilter, subsStatusFilter, subsSearch]);
 
   const saveSettings = async () => { setSettingsSaved(false); try { await fetch(`${API_BASE}/api/admin/settings`, { method: "PUT", headers: { "Content-Type": "application/json", ...getAuthHeader() }, body: JSON.stringify(settings) }); setSettingsSaved(true); setTimeout(() => setSettingsSaved(false), 3000); } catch {} };
   const resetPassword = async (uid, newPassword) => { setResetMsg(""); setResetPwSaving(true); try { const body = newPassword ? { newPassword } : {}; const d = await apiPost(`/api/admin/users/${uid}/reset-password`, body); setResetMsg(d?.message || (d?.tempPassword ? `Password reset to: ${d.tempPassword}` : "Password changed")); setShowResetPw(null); setResetPwInput(""); } catch (e) { setResetMsg(e?.message || "Failed"); } finally { setResetPwSaving(false); } };
@@ -295,10 +426,46 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [deleteMsg, setDeleteMsg] = useState("");
   useEffect(() => { if (user) setProfileForm({ name: user.name || "", email: user.email || "", phone: user.phone || "", language: user.language || "", grade_level: user.grade_level || "", curriculum: user.curriculum || "" }); }, [user]);
+
+  // ─── Student class (grade_level) self-service ───────────────────────────
+  // Student picks their class on first login; can only update once per year.
+  const GRADE_COOLDOWN_DAYS = 365;
+  const gradeChangeInfo = (() => {
+    if (!isStudent) return { canChange: false, daysLeft: 0, needsSetup: false };
+    if (!user?.grade_level) return { canChange: true, daysLeft: 0, needsSetup: true };
+    const last = user?.grade_level_updated_at ? new Date(user.grade_level_updated_at) : null;
+    if (!last) return { canChange: true, daysLeft: 0, needsSetup: false };
+    const daysElapsed = Math.floor((Date.now() - last.getTime()) / 86400000);
+    const daysLeft = Math.max(0, GRADE_COOLDOWN_DAYS - daysElapsed);
+    return { canChange: daysLeft === 0, daysLeft, needsSetup: false };
+  })();
+  const [showGradePicker, setShowGradePicker] = useState(false);
+  const [gradePick, setGradePick] = useState("");
+  const [gradeSaving, setGradeSaving] = useState(false);
+  const [gradeMsg, setGradeMsg] = useState("");
+  useEffect(() => { if (gradeChangeInfo.needsSetup) setShowGradePicker(true); }, [gradeChangeInfo.needsSetup]);
+  const submitGrade = async () => {
+    if (!gradePick) { setGradeMsg(lang === "sw" ? "Chagua darasa" : "Please select a class"); return; }
+    setGradeSaving(true); setGradeMsg("");
+    try {
+      const d = await apiPost("/api/users/grade", { grade_level: gradePick });
+      if (d?.user) {
+        if (typeof setUser === "function") setUser(d.user);
+        setShowGradePicker(false); setGradePick("");
+      } else {
+        setGradeMsg(d?.error || (lang === "sw" ? "Imeshindikana" : "Failed to save"));
+      }
+    } catch (err) {
+      setGradeMsg(err?.message || (lang === "sw" ? "Imeshindikana" : "Failed to save"));
+    } finally { setGradeSaving(false); }
+  };
+
   const saveProfile = async () => {
     setProfileSaving(true); setProfileMsg("");
     try {
-      const d = await fetch(`${API_BASE}/api/users/profile`, { method: "PATCH", headers: { "Content-Type": "application/json", ...getAuthHeader() }, body: JSON.stringify(profileForm) });
+      // Students manage grade_level via /api/users/grade (once-per-year rule).
+      const payload = isStudent ? (({ grade_level, ...rest }) => rest)(profileForm) : profileForm;
+      const d = await fetch(`${API_BASE}/api/users/profile`, { method: "PATCH", headers: { "Content-Type": "application/json", ...getAuthHeader() }, body: JSON.stringify(payload) });
       const r = await d.json();
       if (r?.user) { setProfileMsg("Profile updated!"); setTimeout(() => setProfileMsg(""), 3000); }
       else { setProfileMsg(r?.error || "Failed"); }
@@ -316,16 +483,38 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
   };
 
   const sidebarItems = isSuperAdmin
-    ? [{ l: "Overview", icon: BarChart3 }, { l: "Transactions", icon: CreditCard }, { l: "SMS Logs", icon: Smartphone },
+    ? [{ l: "Overview", icon: BarChart3 }, { l: "Transactions", icon: CreditCard }, { l: "Subscriptions", icon: Receipt }, { l: "SMS Logs", icon: Smartphone },
        { l: "Users", icon: Users }, { l: "Students", icon: GraduationCap }, { l: "Teachers", icon: BookOpen },
+       { l: "Exams", icon: FileText }, { l: "Lessons", icon: Download },
        { l: "Coupons", icon: Tag }, { l: "Settings", icon: SettingsIcon }, { l: "Reports", icon: TrendingUp }]
     : isTeacher
-    ? [{ l: "Overview", icon: BarChart3 }, { l: "Students", icon: GraduationCap }, { l: "Rankings", icon: Trophy }, { l: "AI Insights", icon: Zap }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }]
+    ? [
+        { l: "Overview", icon: BarChart3 },
+        { l: "Students", icon: GraduationCap },
+        { l: "Rankings", icon: Trophy },
+        { l: "AI Insights", icon: Zap },
+        { l: "Exams", icon: FileText },
+        { l: "Lessons", icon: Download },
+        // Teachers only see Billing if they are a self-paying independent teacher
+        // (no school ties). Teachers under a school get billed via the school account.
+        ...(!user?.school_id ? [{ l: "Billing", icon: CreditCard }] : []),
+        { l: "Reports", icon: TrendingUp },
+      ]
     : isStudent
-    ? [{ l: "Home", icon: Home }, { l: "Tutor", icon: Bot }, { l: "Exams", icon: FileText }, { l: "Offline Lessons", icon: Download }, { l: "Rankings", icon: Trophy }, { l: "Progress", icon: BarChart3 }, { l: "Billing", icon: CreditCard }]
+    ? [
+        { l: "Home", icon: Home },
+        { l: "Tutor", icon: Bot },
+        { l: "Exams", icon: FileText },
+        { l: "Offline Lessons", icon: Download },
+        { l: "Rankings", icon: Trophy },
+        { l: "Progress", icon: BarChart3 },
+        // Students added by a school inherit the school's plan → no personal Billing tab.
+        // Self-signed-up students (no school_id) keep Billing to manage their own plan.
+        ...(!user?.school_id ? [{ l: "Billing", icon: CreditCard }] : []),
+      ]
     : isParent
-    ? [{ l: "Overview", icon: BarChart3 }, { l: "Children", icon: Heart }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }]
-    : [{ l: "Overview", icon: BarChart3 }, { l: "Teachers", icon: BookOpen }, { l: "Students", icon: GraduationCap }, { l: "Rankings", icon: Trophy }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }];
+    ? [{ l: "Overview", icon: BarChart3 }, { l: "Children", icon: Heart }, { l: "Exams", icon: FileText }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }]
+    : [{ l: "Overview", icon: BarChart3 }, { l: "Teachers", icon: BookOpen }, { l: "Students", icon: GraduationCap }, { l: "Rankings", icon: Trophy }, { l: "Exams", icon: FileText }, { l: "Billing", icon: CreditCard }, { l: "Reports", icon: TrendingUp }];
   const [sideOpen, setSideOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(typeof window !== "undefined" && window.innerWidth < 768);
@@ -491,12 +680,17 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
           </>)}
           {!dashStats && !loadingAdmin && <>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-4 mb-6">
-              {[
+              {(isTeacher ? [
+                { l: lang === "sw" ? "Wanafunzi Wangu" : "My Students", v: stats.total, icon: GraduationCap, iconBg: "bg-purple-600", shadow: "shadow-purple-500/20" },
+                { l: lang === "sw" ? "Wanaotumia" : "Active (30d)", v: stats.active, icon: Zap, iconBg: "bg-emerald-500", shadow: "shadow-emerald-500/20" },
+                { l: lang === "sw" ? "Wastani wa XP" : "Avg XP", v: stats.avg, icon: TrendingUp, iconBg: "bg-violet-500", shadow: "shadow-violet-500/20" },
+                { l: lang === "sw" ? "Jumla ya XP" : "Total XP", v: realStudents.reduce((a, s) => a + (s.total_xp || 0), 0), icon: Trophy, iconBg: "bg-amber-500", shadow: "shadow-amber-500/20" },
+              ] : [
                 { l: "Total Students", v: stats.total, icon: GraduationCap, iconBg: "bg-purple-600", shadow: "shadow-purple-500/20" },
                 { l: "Active", v: stats.active, icon: Zap, iconBg: "bg-emerald-500", shadow: "shadow-emerald-500/20" },
                 { l: "Avg Score", v: `${stats.avg}%`, icon: TrendingUp, iconBg: "bg-violet-500", shadow: "shadow-violet-500/20" },
                 { l: "Teachers", v: stats.teachers, icon: BookOpen, iconBg: "bg-amber-500", shadow: "shadow-amber-500/20" },
-              ].map((s) => { const Icon = s.icon; return (
+              ]).map((s) => { const Icon = s.icon; return (
                 <div key={s.l} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
                   <div className={`w-10 h-10 rounded-xl ${s.iconBg} flex items-center justify-center shadow-lg ${s.shadow} mb-3`}><Icon size={18} color="#fff" /></div>
                   <p className="text-slate-900 text-2xl mb-0.5 mt-0 font-body font-black">{s.v}</p>
@@ -619,13 +813,18 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
                 <button onClick={() => isTeacher ? setShowAddStudentsWizard(true) : setShowAdd(true)} className="py-2 px-4 rounded-xl border-none cursor-pointer bg-purple-600 text-white text-[11px] font-body font-bold shadow-sm shadow-purple-600/25 hover:shadow-lg transition-shadow flex items-center gap-1.5"><UserPlus size={14} /> {lang === "sw" ? "Ongeza Wanafunzi" : "Add Students"}</button>
               </div>
             </div>
+            {studentActionMsg && (
+              <div className="mx-5 mt-3 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[12px] font-body font-bold flex items-center gap-2">
+                <CheckCircle size={14} /> {studentActionMsg}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50/80">
-                  <tr><th className={thCls}>Student</th><th className={thCls}>Email</th><th className={thCls}>Grade</th><th className={thCls}>Status</th><th className={thCls}>Joined</th></tr>
+                  <tr><th className={thCls}>Student</th><th className={thCls}>Email</th><th className={thCls}>Grade</th><th className={thCls}>Status</th><th className={thCls}>Joined</th>{isTeacher && <th className={thCls}>Actions</th>}</tr>
                 </thead>
                 <tbody>
-                  {realStudentsLoading && tblSkeleton(5, 3)}
+                  {realStudentsLoading && tblSkeleton(isTeacher ? 6 : 5, 3)}
                   {!realStudentsLoading && (isTeacher ? realStudents : students).slice((realStudentsPage - 1) * 20, realStudentsPage * 20).map((s) => (
                     <tr key={s.id} className={trCls}>
                       <td className={tdCls}><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-[11px] font-bold shrink-0">{(s.name || "?")[0]}</div><p className="text-slate-900 text-[12px] font-body font-bold m-0">{s.name}</p></div></td>
@@ -633,6 +832,34 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
                       <td className={tdCls}>{s.grade_level || s.grade || "—"}</td>
                       <td className={tdCls}><Badge color={s.email_verified || s.status === "Active" ? C.accent : C.gold}>{s.email_verified ? (lang === "sw" ? "Amethibitishwa" : "Verified") : s.status === "Active" ? "Active" : (lang === "sw" ? "Anasubiri" : "Pending")}</Badge></td>
                       <td className={`${tdCls} text-slate-400`}>{s.created_at ? new Date(s.created_at).toLocaleDateString() : "—"}</td>
+                      {isTeacher && (
+                        <td className={tdCls}>
+                          <div className="flex gap-1.5 flex-wrap">
+                            <button title={lang === "sw" ? "Angalia" : "View student"} onClick={() => openStudentDetail(s.id)}
+                              className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-500 text-[10px] font-body font-bold cursor-pointer hover:bg-slate-50 transition-colors flex items-center gap-1"
+                            ><Eye size={11} /> {lang === "sw" ? "Angalia" : "View"}</button>
+                            <button title={lang === "sw" ? "Tuma barua pepe tena" : "Resend welcome email"} onClick={() => resendStudentInvite(s.id)}
+                              disabled={studentBusy?.id === s.id}
+                              className={`py-1.5 px-2.5 rounded-lg border border-purple-600/20 bg-purple-50 text-purple-600 text-[10px] font-body font-bold cursor-pointer hover:bg-purple-100 transition-colors flex items-center gap-1 ${studentBusy?.id === s.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                            ><RefreshCw size={11} className={studentBusy?.id === s.id && studentBusy?.action === "resend" ? "animate-spin" : ""} /> {lang === "sw" ? "Tuma tena" : "Resend"}</button>
+                            <button title={lang === "sw" ? "Weka nenosiri jipya" : "Reset password"} onClick={() => resetStudentPassword(s.id, s.name, s.email)}
+                              disabled={studentBusy?.id === s.id}
+                              className={`py-1.5 px-2.5 rounded-lg border border-amber-500/20 bg-amber-50 text-amber-600 text-[10px] font-body font-bold cursor-pointer hover:bg-amber-100 transition-colors flex items-center gap-1 ${studentBusy?.id === s.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                            ><Key size={11} /> {lang === "sw" ? "Nenosiri" : "Reset PW"}</button>
+                            {!s.email_verified && (
+                              <button title={lang === "sw" ? "Thibitisha akaunti" : "Manually verify account"} onClick={() => verifyStudent(s.id)}
+                                disabled={studentBusy?.id === s.id}
+                                className={`py-1.5 px-2.5 rounded-lg border border-emerald-500/20 bg-emerald-50 text-emerald-600 text-[10px] font-body font-bold cursor-pointer hover:bg-emerald-100 transition-colors flex items-center gap-1 ${studentBusy?.id === s.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                              ><CheckCircle size={11} /> {lang === "sw" ? "Thibitisha" : "Verify"}</button>
+                            )}
+                            <button title={s.is_active === false ? (lang === "sw" ? "Washa" : "Activate") : (lang === "sw" ? "Zima" : "Deactivate")}
+                              onClick={() => toggleStudentActive(s.id, s.name, s.is_active !== false)}
+                              disabled={studentBusy?.id === s.id}
+                              className={`py-1.5 px-2.5 rounded-lg text-[10px] font-body font-bold cursor-pointer border transition-colors flex items-center gap-1 ${s.is_active === false ? "border-emerald-500/20 bg-emerald-50 text-emerald-500 hover:bg-emerald-100" : "border-red-500/20 bg-rose-50 text-red-500 hover:bg-red-100"} ${studentBusy?.id === s.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                            >{s.is_active === false ? <><UserCheck size={11} /> {lang === "sw" ? "Washa" : "Activate"}</> : <><UserX size={11} /> {lang === "sw" ? "Zima" : "Deactivate"}</>}</button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -662,10 +889,20 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
                       <input value={st.name} onChange={(e) => { const arr = [...bulkStudents]; arr[i].name = e.target.value; setBulkStudents(arr); }} placeholder={lang === "sw" ? "Jina Kamili" : "Full Name"} className={`w-full ${inputCls}`} />
                       {bulkStudents.length > 1 && <button onClick={() => setBulkStudents((p) => p.filter((_, j) => j !== i))} className="bg-transparent border-none text-red-400 cursor-pointer shrink-0"><X size={16} /></button>}
                     </div>
-                    <input value={st.email} onChange={(e) => { const arr = [...bulkStudents]; arr[i].email = e.target.value; setBulkStudents(arr); }} placeholder="Email" className={`w-full ${inputCls}`} />
+                    <input value={st.email} onChange={(e) => { const arr = [...bulkStudents]; arr[i].email = e.target.value; setBulkStudents(arr); }} placeholder="Email" className={`w-full ${inputCls} mb-2`} />
+                    {(() => {
+                      const key = resolveCurriculumKey(user?.country || country, user?.curriculum);
+                      const levels = Object.keys(CURRICULA?.[key]?.levels || {});
+                      return (
+                        <select value={st.grade_level || ""} onChange={(e) => { const arr = [...bulkStudents]; arr[i].grade_level = e.target.value; setBulkStudents(arr); }} className={`w-full ${inputCls}`}>
+                          <option value="">{lang === "sw" ? "Chagua Darasa" : "Select Grade / Class"}</option>
+                          {levels.map((lvl) => (<option key={lvl} value={lvl}>{lvl}</option>))}
+                        </select>
+                      );
+                    })()}
                   </div>
                 ))}
-                <button onClick={() => setBulkStudents((p) => [...p, { name: "", email: "" }])} className="text-purple-600 text-xs font-body font-extrabold bg-transparent border-none cursor-pointer mb-4 flex items-center gap-1"><Plus size={14} /> {lang === "sw" ? "Ongeza Mstari" : "Add Row"}</button>
+                <button onClick={() => setBulkStudents((p) => [...p, { name: "", email: "", grade_level: "" }])} className="text-purple-600 text-xs font-body font-extrabold bg-transparent border-none cursor-pointer mb-4 flex items-center gap-1"><Plus size={14} /> {lang === "sw" ? "Ongeza Mstari" : "Add Row"}</button>
 
                 {onboardStudentResult && (
                   <div className={`rounded-xl p-3 mb-3 ${onboardStudentResult.created?.length ? "bg-emerald-50 border border-emerald-200" : "bg-rose-50 border border-red-200"}`}>
@@ -682,37 +919,152 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
               </div>
             </div>
           )}
+
+          {/* Student Detail Modal (teacher-scoped view) */}
+          {viewStudent && <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center p-5 overflow-y-auto">
+            <div className="bg-white border border-slate-200 rounded-[20px] p-[22px] w-full max-w-[560px] max-h-[90vh] overflow-y-auto shadow-xl">
+              <div className="flex justify-between mb-3.5">
+                <h3 className="text-slate-900 font-heading font-black m-0">{lang === "sw" ? "Maelezo ya Mwanafunzi" : "Student Details"}</h3>
+                <button onClick={() => setViewStudent(null)} className="bg-transparent border-none text-slate-400 cursor-pointer"><X size={20} /></button>
+              </div>
+              {viewStudentLoading || viewStudent?.loading ? (
+                <div className="py-8 flex justify-center"><Spinner /></div>
+              ) : viewStudent?.student ? (
+                <div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-full bg-purple-600 flex items-center justify-center text-white text-lg font-bold">{(viewStudent.student.name || "?")[0]}</div>
+                    <div>
+                      <p className="text-slate-900 text-base font-heading font-black m-0">{viewStudent.student.name}</p>
+                      <p className="text-slate-400 text-[11px] font-body m-0">{viewStudent.student.email}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                    {[
+                      { l: "Grade", v: viewStudent.student.grade_level || "—" },
+                      { l: "Phone", v: viewStudent.student.phone || "—" },
+                      { l: "Total XP", v: Number(viewStudent.student.total_xp || 0).toLocaleString() },
+                      { l: "Streak", v: `${viewStudent.student.streak_days || 0} days` },
+                      { l: "Verified", v: viewStudent.student.email_verified ? "Yes" : "No" },
+                      { l: "Active", v: viewStudent.student.is_active === false ? "No" : "Yes" },
+                      { l: "Onboarded", v: viewStudent.student.onboarded ? "Yes" : "No" },
+                      { l: "Joined", v: viewStudent.student.created_at ? new Date(viewStudent.student.created_at).toLocaleDateString() : "—" },
+                    ].map((f) => (
+                      <div key={f.l} className="bg-slate-50 rounded-lg p-2.5">
+                        <p className="text-slate-400 text-[9px] font-body font-bold m-0 mb-0.5 uppercase">{f.l}</p>
+                        <p className="text-slate-900 text-[12px] font-body font-bold m-0">{f.v}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {viewStudent.classes?.length > 0 && (
+                    <div className="mb-4">
+                      <p className="text-slate-900 text-[12px] font-heading font-black m-0 mb-2">{lang === "sw" ? "Madarasa" : "Classes"}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {viewStudent.classes.map((c) => (
+                          <span key={c.id} className="bg-purple-50 border border-purple-200 text-purple-700 text-[10px] font-body font-bold px-2.5 py-1 rounded-full">{c.name}{c.subject ? ` • ${c.subject}` : ""}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-slate-900 text-[12px] font-heading font-black m-0 mb-2">{lang === "sw" ? "Shughuli za Hivi Karibuni" : "Recent Activity"}</p>
+                    {viewStudent.activity?.length > 0 ? (
+                      <div className="max-h-[220px] overflow-y-auto border border-slate-100 rounded-xl">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50/80 sticky top-0"><tr><th className={thCls}>Type</th><th className={thCls}>Score</th><th className={thCls}>XP</th><th className={thCls}>Date</th></tr></thead>
+                          <tbody>
+                            {viewStudent.activity.map((a, i) => (
+                              <tr key={i} className={trCls}>
+                                <td className={`${tdCls} capitalize`}>{a.activity_type}</td>
+                                <td className={tdCls}>{a.score != null ? `${a.score}%` : "—"}</td>
+                                <td className={tdCls}>{a.xp_earned || 0}</td>
+                                <td className={`${tdCls} text-slate-400`}>{a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : <p className="text-slate-400 text-[11px] font-body text-center py-4">{lang === "sw" ? "Hakuna shughuli bado." : "No activity yet."}</p>}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>}
+          {/* Student Password Reset Result Modal */}
+          {resetStudentPw && <div className="fixed inset-0 bg-black/50 z-[1000] flex items-center justify-center p-5">
+            <div className="bg-white border border-slate-200 rounded-[20px] p-[22px] w-full max-w-[420px] shadow-xl">
+              <div className="flex justify-between mb-3.5">
+                <h3 className="text-slate-900 font-heading font-black m-0 flex items-center gap-2"><Key size={16} className="text-amber-500" /> {lang === "sw" ? "Nenosiri Jipya" : "New Password"}</h3>
+                <button onClick={() => setResetStudentPw(null)} className="bg-transparent border-none text-slate-400 cursor-pointer"><X size={20} /></button>
+              </div>
+              <p className="text-slate-500 text-[11px] font-body mb-3 mt-0">{lang === "sw" ? "Andika hii chini au tuma kwa" : "Copy this and share with"} <strong className="text-slate-900">{resetStudentPw.name}</strong> ({resetStudentPw.email}).</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 flex items-center justify-between gap-2">
+                <code className="text-amber-800 text-sm font-mono font-black tracking-wide break-all">{resetStudentPw.temp_password}</code>
+                <button onClick={() => { navigator.clipboard?.writeText(resetStudentPw.temp_password); setStudentActionMsg(lang === "sw" ? "Imenakiliwa" : "Copied to clipboard"); setTimeout(() => setStudentActionMsg(""), 3000); }} className="py-1.5 px-3 rounded-lg border-none cursor-pointer bg-amber-600 text-white text-[10px] font-body font-bold hover:bg-amber-700 transition-colors shrink-0">{lang === "sw" ? "Nakili" : "Copy"}</button>
+              </div>
+              <p className="text-slate-400 text-[10px] font-body m-0 mb-3">{lang === "sw" ? "Mwanafunzi anapaswa kubadilisha nenosiri baada ya kuingia." : "The student should change this password after logging in."}</p>
+              <button onClick={() => setResetStudentPw(null)} className={btnPrimary}>{lang === "sw" ? "Nimemaliza" : "Done"}</button>
+            </div>
+          </div>}
         </>)}
 
         {/* TEACHERS TAB */}
         {tab === "Teachers" && (<>
+          {teacherActionMsg && (
+            <div className="mb-3 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[12px] font-body font-bold flex items-center gap-2">
+              <CheckCircle size={14} /> {teacherActionMsg}
+            </div>
+          )}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="p-5 border-b border-slate-100">
               <div className="flex justify-between items-center flex-wrap gap-2">
-                <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center"><BookOpen size={15} color="#fff" /></div><h4 className="text-slate-900 text-sm font-heading font-black m-0">{realTeachers.length || teachers.length} {lang === "sw" ? "Walimu" : "Teachers"}</h4></div>
+                <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center"><BookOpen size={15} color="#fff" /></div><h4 className="text-slate-900 text-sm font-heading font-black m-0">{realTeachers.length} {lang === "sw" ? "Walimu" : "Teachers"}</h4></div>
                 <button onClick={() => setShowAddTeachers(true)} className="py-2 px-4 rounded-xl border-none cursor-pointer bg-purple-600 text-white text-[11px] font-body font-bold shadow-sm shadow-purple-600/25 hover:shadow-lg transition-shadow flex items-center gap-1.5"><UserPlus size={14} /> {lang === "sw" ? "Ongeza Walimu" : "Onboard Teachers"}</button>
               </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50/80">
-                  <tr><th className={thCls}>Teacher</th><th className={thCls}>Email / Subject</th><th className={thCls}>Students</th><th className={thCls}>Status</th><th className={thCls}>Actions</th></tr>
+                  <tr><th className={thCls}>Teacher</th><th className={thCls}>Email / Subject</th><th className={thCls}>Class</th><th className={thCls}>Students</th><th className={thCls}>Status</th><th className={thCls}>Actions</th></tr>
                 </thead>
                 <tbody>
-                  {teachersLoading && tblSkeleton(5, 3)}
-                  {!teachersLoading && (realTeachers.length > 0 ? realTeachers : teachers).slice((teachersPage - 1) * 20, teachersPage * 20).map((tc) => (
+                  {teachersLoading && tblSkeleton(6, 3)}
+                  {!teachersLoading && realTeachers.length === 0 && (
+                    <tr><td colSpan={6} className="py-10 text-center text-slate-400 text-[12px] font-body">{lang === "sw" ? "Hakuna walimu bado. Bofya \"Ongeza Walimu\" kuanza." : "No teachers yet. Click \"Onboard Teachers\" to add your first one."}</td></tr>
+                  )}
+                  {!teachersLoading && realTeachers.slice((teachersPage - 1) * 20, teachersPage * 20).map((tc) => (
                     <tr key={tc.id || tc.name} className={trCls}>
                       <td className={tdCls}><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-[11px] font-bold shrink-0"><BookOpen size={14} color="#fff" /></div><p className="text-slate-900 text-[12px] font-body font-bold m-0">{tc.name}</p></div></td>
-                      <td className={tdCls}>{tc.email || tc.subject}</td>
-                      <td className={tdCls}>{tc.students || "—"}</td>
+                      <td className={tdCls}><div><p className="text-slate-900 text-[11px] font-body m-0">{tc.email || "—"}</p>{tc.subject && <p className="text-slate-400 text-[10px] font-body m-0">{tc.subject}</p>}</div></td>
+                      <td className={tdCls}>{tc.class_name ? <div><p className="text-slate-900 text-[11px] font-body font-bold m-0">{tc.class_name}</p>{tc.class_grade && <p className="text-slate-400 text-[10px] font-body m-0">{tc.class_grade}</p>}</div> : <span className="text-slate-300 text-[10px]">—</span>}</td>
+                      <td className={tdCls}>{tc.student_count ?? 0}</td>
                       <td className={tdCls}><Badge color={tc.email_verified ? C.accent : C.gold}>{tc.email_verified ? (lang === "sw" ? "Amethibitishwa" : "Verified") : (lang === "sw" ? "Hajaamilishwa" : "Pending")}</Badge></td>
-                      <td className={tdCls}><div className="flex gap-1.5"><button className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-500 text-[10px] font-body font-bold cursor-pointer hover:bg-slate-50 transition-colors">{t("view_perf")}</button><button className="py-1.5 px-2.5 rounded-lg border border-purple-600/20 bg-purple-50 text-purple-600 text-[10px] font-body font-bold cursor-pointer hover:bg-purple-100 transition-colors">{t("msg")}</button></div></td>
+                      <td className={tdCls}>
+                        <div className="flex gap-1.5 flex-wrap">
+                          <button
+                            title={lang === "sw" ? "Angalia" : "View details"}
+                            onClick={() => openUserDetail(tc.id)}
+                            className="py-1.5 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-500 text-[10px] font-body font-bold cursor-pointer hover:bg-slate-50 transition-colors flex items-center gap-1"
+                          ><Eye size={11} /> {lang === "sw" ? "Angalia" : "View"}</button>
+                          <button
+                            title={lang === "sw" ? "Tuma mwaliko tena" : "Resend welcome email with a new temp password"}
+                            onClick={() => resendTeacherInvite(tc.id)}
+                            disabled={teacherBusy?.id === tc.id}
+                            className={`py-1.5 px-2.5 rounded-lg border border-purple-600/20 bg-purple-50 text-purple-600 text-[10px] font-body font-bold cursor-pointer hover:bg-purple-100 transition-colors flex items-center gap-1 ${teacherBusy?.id === tc.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                          ><RefreshCw size={11} className={teacherBusy?.id === tc.id && teacherBusy?.action === "resend" ? "animate-spin" : ""} /> {lang === "sw" ? "Tuma tena" : "Resend"}</button>
+                          <button
+                            title={tc.is_active ? (lang === "sw" ? "Zima" : "Deactivate") : (lang === "sw" ? "Washa" : "Activate")}
+                            onClick={() => { if (tc.is_active && !confirm(lang === "sw" ? `Zima ${tc.name}? Hatoweza kuingia.` : `Deactivate ${tc.name}? They won't be able to log in.`)) return; toggleTeacherActive(tc.id); }}
+                            disabled={teacherBusy?.id === tc.id}
+                            className={`py-1.5 px-2.5 rounded-lg text-[10px] font-body font-bold cursor-pointer border transition-colors flex items-center gap-1 ${tc.is_active ? "border-red-500/20 bg-rose-50 text-red-500 hover:bg-red-100" : "border-emerald-500/20 bg-emerald-50 text-emerald-500 hover:bg-emerald-100"} ${teacherBusy?.id === tc.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                          >{tc.is_active ? <><UserX size={11} /> {lang === "sw" ? "Zima" : "Deactivate"}</> : <><UserCheck size={11} /> {lang === "sw" ? "Washa" : "Activate"}</>}</button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            {(() => { const allTeachers = realTeachers.length > 0 ? realTeachers : teachers; return <div className="flex justify-between items-center p-4 border-t border-slate-100">
+            {(() => { const allTeachers = realTeachers; return <div className="flex justify-between items-center p-4 border-t border-slate-100">
               <span className="text-slate-400 text-[11px] font-body">{allTeachers.length} record{allTeachers.length !== 1 ? "s" : ""}</span>
               <div className="flex items-center gap-2.5">
                 <button disabled={teachersPage <= 1} onClick={() => setTeachersPage((p) => p - 1)} className={pagBtn(teachersPage <= 1)}>Prev</button>
@@ -734,13 +1086,17 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
                       <input value={tc.name} onChange={(e) => { const arr = [...bulkTeachers]; arr[i].name = e.target.value; setBulkTeachers(arr); }} placeholder={lang === "sw" ? "Jina" : "Full Name"} className={`w-full ${inputCls}`} />
                       {bulkTeachers.length > 1 && <button onClick={() => setBulkTeachers((p) => p.filter((_, j) => j !== i))} className="bg-transparent border-none text-red-400 cursor-pointer shrink-0"><X size={16} /></button>}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 mb-2">
                       <input value={tc.email} onChange={(e) => { const arr = [...bulkTeachers]; arr[i].email = e.target.value; setBulkTeachers(arr); }} placeholder="Email" className={`w-full ${inputCls}`} />
-                      <input value={tc.subject} onChange={(e) => { const arr = [...bulkTeachers]; arr[i].subject = e.target.value; setBulkTeachers(arr); }} placeholder={lang === "sw" ? "Somo" : "Subject"} className={`w-2/5 ${inputCls}`} />
+                      <input value={tc.subject} onChange={(e) => { const arr = [...bulkTeachers]; arr[i].subject = e.target.value; setBulkTeachers(arr); }} placeholder={lang === "sw" ? "Somo (hiari)" : "Subject (optional)"} className={`w-2/5 ${inputCls}`} />
+                    </div>
+                    <div className="flex gap-2">
+                      <input value={tc.className} onChange={(e) => { const arr = [...bulkTeachers]; arr[i].className = e.target.value; setBulkTeachers(arr); }} placeholder={lang === "sw" ? "Darasa (mfano: Gredi 5A)" : "Class name (e.g. Grade 5A)"} className={`w-full ${inputCls}`} />
+                      <input value={tc.gradeLevel} onChange={(e) => { const arr = [...bulkTeachers]; arr[i].gradeLevel = e.target.value; setBulkTeachers(arr); }} placeholder={lang === "sw" ? "Kiwango" : "Grade"} className={`w-2/5 ${inputCls}`} />
                     </div>
                   </div>
                 ))}
-                <button onClick={() => setBulkTeachers((p) => [...p, { name: "", email: "", subject: "" }])} className="text-purple-600 text-xs font-body font-extrabold bg-transparent border-none cursor-pointer mb-4 flex items-center gap-1"><Plus size={14} /> {lang === "sw" ? "Ongeza Mstari" : "Add Row"}</button>
+                <button onClick={() => setBulkTeachers((p) => [...p, { name: "", email: "", subject: "", className: "", gradeLevel: "" }])} className="text-purple-600 text-xs font-body font-extrabold bg-transparent border-none cursor-pointer mb-4 flex items-center gap-1"><Plus size={14} /> {lang === "sw" ? "Ongeza Mstari" : "Add Row"}</button>
 
                 {onboardTeacherResult && (
                   <div className={`rounded-xl p-3 mb-3 ${onboardTeacherResult.created?.length ? "bg-emerald-50 border border-emerald-200" : "bg-rose-50 border border-red-200"}`}>
@@ -819,7 +1175,7 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
         </>)}
 
         {/* RANKINGS TAB (School Admin) */}
-        {tab === "Rankings" && !isTeacher && (<>
+        {tab === "Rankings" && !isTeacher && !isStudent && !isParent && (<>
           {/* Period filter + sub-tabs */}
           <div className="flex justify-between items-center flex-wrap gap-3 mb-5">
             <div className="flex gap-1.5">
@@ -1001,12 +1357,15 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
         </>)}
 
         {/* STUDENT TABS */}
-        {isStudent && tab === "Home" && <HomeScreen setActive={setTab} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} lang={lang} user={user} />}
-        {isStudent && tab === "Tutor" && <TutorScreen country={country} level={level} isOffline={isOffline} lang={lang} user={user} />}
-        {isStudent && tab === "Exams" && <ExamScreen country={country} level={level} lang={lang} user={user} />}
+        {isStudent && tab === "Home" && <HomeScreen setActive={(k) => setTab(k === "Plans" ? "Billing" : k)} country={country} setCountry={setCountry} level={level} setLevel={setLevel} isOffline={isOffline} plan={plan} lang={lang} user={user} subStatus={subStatus} />}
+        {isStudent && tab === "Tutor" && <TutorScreen country={country} level={level} isOffline={isOffline} lang={lang} user={user} subStatus={subStatus} setActive={(k) => setTab(k === "Plans" ? "Billing" : k)} />}
+        {tab === "Exams" && <ExamScreen country={country} level={level} lang={lang} user={user} />}
         {isStudent && tab === "Rankings" && <LeaderboardScreen lang={lang} user={user} />}
         {isStudent && tab === "Progress" && <ProgressScreen country={country} level={level} lang={lang} user={user} />}
         {isStudent && tab === "Offline Lessons" && <OfflineLessonsTab lang={lang} user={user} level={level} />}
+
+        {/* OFFLINE LESSONS CRUD — teachers, admins and super_admins */}
+        {!isStudent && !isParent && tab === "Lessons" && <LessonsManager lang={lang} user={user} />}
 
         {/* PARENT OVERVIEW TAB */}
         {tab === "Overview" && isParent && (<>
@@ -1212,7 +1571,35 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
                     <div><p className="text-slate-400 text-[10px] font-body font-bold mb-1 mt-0">Email</p><input type="email" value={profileForm.email} onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))} placeholder="your@email.com" className={inputCls} /></div>
                     <div><p className="text-slate-400 text-[10px] font-body font-bold mb-1 mt-0">Phone</p><input value={profileForm.phone} onChange={(e) => setProfileForm((p) => ({ ...p, phone: e.target.value }))} placeholder="+254..." className={inputCls} /></div>
                     <div><p className="text-slate-400 text-[10px] font-body font-bold mb-1 mt-0">Language</p><select value={profileForm.language} onChange={(e) => setProfileForm((p) => ({ ...p, language: e.target.value }))} className={inputCls}><option value="">Select</option><option value="en">English</option><option value="sw">Swahili</option></select></div>
-                    <div><p className="text-slate-400 text-[10px] font-body font-bold mb-1 mt-0">Grade Level</p><input value={profileForm.grade_level} onChange={(e) => setProfileForm((p) => ({ ...p, grade_level: e.target.value }))} placeholder="e.g. Grade 5" className={inputCls} /></div>
+                    <div>
+                      <p className="text-slate-400 text-[10px] font-body font-bold mb-1 mt-0">
+                        {lang === "sw" ? "Darasa" : "Grade Level"}
+                        {isStudent && !gradeChangeInfo.canChange && (
+                          <span className="ml-1.5 text-amber-600 normal-case font-normal">
+                            {lang === "sw" ? `— unaweza kubadilisha baada ya siku ${gradeChangeInfo.daysLeft}` : `— can change again in ${gradeChangeInfo.daysLeft} day(s)`}
+                          </span>
+                        )}
+                      </p>
+                      {isStudent ? (
+                        <input value={profileForm.grade_level} disabled placeholder="e.g. Grade 5" className={`${inputCls} bg-slate-50 text-slate-500 cursor-not-allowed`} />
+                      ) : (
+                        <input value={profileForm.grade_level} onChange={(e) => setProfileForm((p) => ({ ...p, grade_level: e.target.value }))} placeholder="e.g. Grade 5" className={inputCls} />
+                      )}
+                      {isStudent && (
+                        <button
+                          type="button"
+                          onClick={() => { setGradePick(user?.grade_level || ""); setGradeMsg(""); setShowGradePicker(true); }}
+                          className="mt-1.5 text-[10px] font-body font-bold flex items-center gap-1 bg-transparent border-none text-purple-600 cursor-pointer hover:underline"
+                        >
+                          <TrendingUp size={12} /> {lang === "sw" ? "Panda Darasa" : "Change / promote class"}
+                          {!gradeChangeInfo.canChange && (
+                            <span className="text-slate-400 font-normal">
+                              {lang === "sw" ? `(siku ${gradeChangeInfo.daysLeft} zimebaki)` : `(${gradeChangeInfo.daysLeft} day(s) left)`}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                    </div>
                     <div><p className="text-slate-400 text-[10px] font-body font-bold mb-1 mt-0">Curriculum</p><select value={profileForm.curriculum} onChange={(e) => setProfileForm((p) => ({ ...p, curriculum: e.target.value }))} className={inputCls}><option value="">Select</option>{Object.entries(CURRICULA).map(([k, v]) => (<option key={k} value={v.curriculum}>{v.name}</option>))}</select></div>
                   </div>
                   <button onClick={saveProfile} disabled={profileSaving} className={`py-2.5 px-5 rounded-xl border-none cursor-pointer bg-purple-600 text-white text-xs font-body font-bold shadow-sm shadow-purple-600/25 hover:shadow-lg transition-shadow flex items-center gap-2 mt-4 ${profileSaving ? "opacity-60" : ""}`}><CheckCircle size={14} /> {profileSaving ? "Saving..." : "Save Changes"}</button>
@@ -1339,6 +1726,90 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
             <button onClick={saveSettings} className="py-2.5 px-5 rounded-xl border-none cursor-pointer bg-purple-600 text-white text-xs font-body font-bold shadow-sm shadow-purple-600/25 hover:shadow-lg transition-shadow flex items-center gap-2 mt-5"><CheckCircle size={16} /> Save Settings</button>
             {settingsSaved && <p className="text-emerald-500 text-xs font-body font-bold text-center mt-3 mb-0 flex items-center justify-center gap-1"><CheckCircle size={14} /> Settings saved!</p>}
           </>)}
+        </>)}
+
+        {/* SUBSCRIPTIONS TAB */}
+        {tab === "Subscriptions" && (<>
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="p-5 border-b border-slate-100">
+              <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center"><Receipt size={15} color="#fff" /></div><h4 className="text-slate-900 text-sm font-heading font-black m-0">{subsTotal} Subscription{subsTotal === 1 ? "" : "s"}</h4></div>
+                {searchBox(subsSearch, (e) => { setSubsSearch(e.target.value); setSubsPage(1); }, "Search by name, email, phone...")}
+              </div>
+              <div className="flex gap-1.5 flex-wrap mb-2">
+                <span className="text-slate-400 text-[10px] font-body font-bold uppercase tracking-wider self-center mr-1">Status:</span>
+                {[{ v: "", l: "All" }, { v: "active", l: "Active" }, { v: "trial", l: "On Trial" }, { v: "expired", l: "Expired" }, { v: "free", l: "Free" }].map((s) => (
+                  <button key={s.v || "all"} onClick={() => { setSubsStatusFilter(s.v); setSubsPage(1); }} className={tblFilterBtn(subsStatusFilter === s.v)}>{s.l}</button>
+                ))}
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                <span className="text-slate-400 text-[10px] font-body font-bold uppercase tracking-wider self-center mr-1">Plan:</span>
+                {["", "free", "student", "family", "school", "enterprise"].map((p) => (
+                  <button key={p || "all"} onClick={() => { setSubsPlanFilter(p); setSubsPage(1); }} className={tblFilterBtn(subsPlanFilter === p)}>{p || "All"}</button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50/80">
+                  <tr>
+                    <th className={thCls}>User</th>
+                    <th className={thCls}>Contact</th>
+                    <th className={thCls}>Role</th>
+                    <th className={thCls}>Plan</th>
+                    <th className={thCls}>Status</th>
+                    <th className={thCls}>Expires</th>
+                    <th className={thCls}>Trial Ends</th>
+                    <th className={thCls}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subsLoading && tblSkeleton(8)}
+                  {!subsLoading && subs.length === 0 && <tr><td colSpan={8} className="text-center text-slate-400 text-xs font-body py-10">No subscriptions found</td></tr>}
+                  {!subsLoading && subs.map((u) => {
+                    const now = Date.now();
+                    const planExp = u.plan_expires ? new Date(u.plan_expires).getTime() : null;
+                    const trialExp = u.trial_expires ? new Date(u.trial_expires).getTime() : null;
+                    const isPaidActive = u.plan && u.plan !== "free" && planExp && planExp > now;
+                    const isOnTrial = !isPaidActive && trialExp && trialExp > now;
+                    const isExempt = u.role === "admin" || u.role === "super_admin";
+                    let statusLabel, statusColor;
+                    if (isExempt) { statusLabel = "Exempt"; statusColor = C.secondary; }
+                    else if (isPaidActive) { statusLabel = "Active"; statusColor = C.accent; }
+                    else if (isOnTrial) { statusLabel = "On Trial"; statusColor = C.primary; }
+                    else if (u.plan === "free" && !trialExp) { statusLabel = "Free"; statusColor = "#94a3b8"; }
+                    else { statusLabel = "Expired"; statusColor = C.error; }
+                    const daysLeft = (ts) => ts ? Math.max(0, Math.ceil((ts - now) / 86400000)) : null;
+                    const planDays = isPaidActive ? daysLeft(planExp) : null;
+                    const trialDays = isOnTrial ? daysLeft(trialExp) : null;
+                    const fmt = (iso) => iso ? new Date(iso).toLocaleDateString() : "—";
+                    return (
+                      <tr key={u.id} className={`${trCls} cursor-pointer`} onClick={() => openUserDetail(u.id)}>
+                        <td className={tdCls}><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-[11px] font-bold shrink-0">{(u.name || "?")[0].toUpperCase()}</div><p className="text-slate-900 text-[12px] font-body font-bold m-0">{u.name}</p></div></td>
+                        <td className={tdCls}><p className="text-slate-500 text-[11px] font-body m-0">{u.email || u.phone || "—"}</p></td>
+                        <td className={`${tdCls} text-slate-500`}>{u.role}</td>
+                        <td className={tdCls}><Badge color={u.plan === "free" ? "#94a3b8" : C.primary}>{u.plan || "free"}</Badge></td>
+                        <td className={tdCls}><Badge color={statusColor}>{statusLabel}</Badge></td>
+                        <td className={`${tdCls} text-slate-500`}>{fmt(u.plan_expires)}{planDays !== null && <span className="text-slate-400 text-[10px] ml-1">({planDays}d)</span>}</td>
+                        <td className={`${tdCls} text-slate-500`}>{fmt(u.trial_expires)}{trialDays !== null && <span className="text-emerald-500 text-[10px] ml-1">({trialDays}d)</span>}</td>
+                        <td className={tdCls} onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => openUserDetail(u.id)} className="py-1 px-2.5 rounded-lg border border-purple-600/20 bg-purple-50 text-purple-600 text-[10px] font-body font-bold cursor-pointer flex items-center gap-1 hover:bg-purple-100 transition-colors"><Eye size={11} /> View</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {!subsLoading && <div className="flex justify-between items-center p-4 border-t border-slate-100">
+              <span className="text-slate-400 text-[11px] font-body">{subsTotal} record{subsTotal !== 1 ? "s" : ""}</span>
+              <div className="flex items-center gap-2.5">
+                <button disabled={subsPage <= 1} onClick={() => setSubsPage((p) => p - 1)} className={pagBtn(subsPage <= 1)}>Prev</button>
+                <span className="text-slate-400 text-[11px] font-body">Page {subsPage} of {Math.max(1, Math.ceil(subsTotal / 20))}</span>
+                <button disabled={subsPage * 20 >= subsTotal} onClick={() => setSubsPage((p) => p + 1)} className={pagBtn(subsPage * 20 >= subsTotal)}>Next</button>
+              </div>
+            </div>}
+          </div>
         </>)}
 
         {/* USERS TAB */}
@@ -1842,6 +2313,68 @@ function SchoolAdmin({ lang, user, onLogout, country, setCountry, level, setLeve
           </div>
         </>)}
       </div>
+
+      {/* Student: Set / Promote Class Modal — mandatory first-time, once per year afterwards.
+          Rendered at the root of the component so it's visible on any tab, not just Users. */}
+      {isStudent && showGradePicker && (
+        <div className="fixed inset-0 bg-black/60 z-[1100] flex items-center justify-center p-5 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-[20px] p-[22px] w-full max-w-[420px] max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="flex justify-between mb-1">
+              <h3 className="text-slate-900 font-heading font-black m-0">
+                {gradeChangeInfo.needsSetup
+                  ? (lang === "sw" ? "Chagua Darasa Lako" : "Choose Your Class")
+                  : (lang === "sw" ? "Panda / Badilisha Darasa" : "Promote / Change Class")}
+              </h3>
+              {!gradeChangeInfo.needsSetup && (
+                <button onClick={() => setShowGradePicker(false)} className="bg-transparent border-none text-slate-400 cursor-pointer"><X size={20} /></button>
+              )}
+            </div>
+            {!gradeChangeInfo.canChange && !gradeChangeInfo.needsSetup ? (
+              <>
+                <div className="mt-3 mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-amber-700 text-xs font-body font-bold m-0 mb-1">
+                    {lang === "sw" ? "Umezuiliwa kwa muda" : "Class change locked"}
+                  </p>
+                  <p className="text-amber-700/80 text-[11px] font-body m-0">
+                    {lang === "sw"
+                      ? `Unaweza kubadilisha darasa mara moja tu kwa mwaka. Jaribu tena baada ya siku ${gradeChangeInfo.daysLeft}.`
+                      : `You can only change your class once per year. Please try again in ${gradeChangeInfo.daysLeft} day(s).`}
+                  </p>
+                </div>
+                <p className="text-slate-400 text-[11px] font-body mb-1 mt-0">
+                  {lang === "sw" ? "Darasa la sasa" : "Current class"}
+                </p>
+                <p className="text-slate-900 text-sm font-body font-black mt-0 mb-4">{user?.grade_level || "—"}</p>
+                <button onClick={() => setShowGradePicker(false)} className={btnPrimary}>
+                  <CheckCircle size={14} /> {lang === "sw" ? "Sawa" : "OK"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-slate-400 text-[11px] font-body mb-4 mt-1">
+                  {gradeChangeInfo.needsSetup
+                    ? (lang === "sw" ? "Tafadhali chagua darasa lako ili tuwe na uzoefu bora. Utaweza kupanda darasa mara moja kwa mwaka." : "Please select your class so we can tailor lessons for you. You can promote your class once a year.")
+                    : (lang === "sw" ? "Unaweza kubadilisha darasa mara moja kwa mwaka." : "You can change your class once every 12 months.")}
+                </p>
+                {(() => {
+                  const key = resolveCurriculumKey(user?.country || country, user?.curriculum);
+                  const levels = Object.keys(CURRICULA?.[key]?.levels || {});
+                  return (
+                    <select value={gradePick} onChange={(e) => setGradePick(e.target.value)} className={`w-full ${inputCls} mb-2`}>
+                      <option value="">{lang === "sw" ? "-- Chagua darasa --" : "-- Select class --"}</option>
+                      {levels.map((lvl) => (<option key={lvl} value={lvl}>{lvl}</option>))}
+                    </select>
+                  );
+                })()}
+                {gradeMsg && <p className="text-red-500 text-[11px] font-body font-bold mb-2 mt-1 px-2.5 py-1.5 bg-rose-50 rounded-lg">{gradeMsg}</p>}
+                <button onClick={submitGrade} disabled={gradeSaving || !gradePick} className={`${btnPrimary} ${gradeSaving || !gradePick ? "opacity-60" : ""}`}>
+                  {gradeSaving ? <Spinner color="#fff" size={6} /> : <><CheckCircle size={14} /> {lang === "sw" ? "Hifadhi" : "Save"}</>}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,3 +10,8 @@ logs/
 .vscode/
 coverage/
 *.bak
+
+# ECS Fargate secrets
+infra/ecs-fargate-py/prod.env
+backups/*.sql
+backups/*.sql.gz

@@ -1,0 +1,120 @@
+version: "3.9"
+
+# Local dev stack for the Python microservices. Shares infra with the Node
+# stack (postgres + redis are the same containers).
+
+x-py-http-service: &py-http-service
+  restart: unless-stopped
+  env_file: .env
+  networks: [elimuai_net]
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis:    { condition: service_started }
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: elimuai_db
+      POSTGRES_USER: elimuai_user
+      POSTGRES_PASSWORD: elimuai_pass_dev
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ../backend/src/db/migrate_sessions.sql:/docker-entrypoint-initdb.d/02_sessions.sql
+      - ../backend/src/db/migrate_otp.sql:/docker-entrypoint-initdb.d/03_otp.sql
+      - ../backend/src/db/migrate_invoices.sql:/docker-entrypoint-initdb.d/04_invoices.sql
+      - ../backend/src/db/migrate_coupons.sql:/docker-entrypoint-initdb.d/05_coupons.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elimuai_user -d elimuai_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [elimuai_net]
+
+  redis:
+    image: redis:7-alpine
+    volumes: [redis_data:/data]
+    networks: [elimuai_net]
+
+  # ─── Object storage (S3-compatible for local dev; use real S3 in prod) ───
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: elimuai_minio
+      MINIO_ROOT_PASSWORD: elimuai_minio_pass_dev
+    ports:
+      - "9000:9000"   # S3 API (browser + services)
+      - "9001:9001"   # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    networks: [elimuai_net]
+
+  # ─── Python services ─────────────────────────────────────────────────────
+  auth-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: auth-service } }
+    environment: { SERVICE_NAME: auth-service, PORT: 5100 }
+    ports: ["5100:5100"]
+
+  users-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: users-service } }
+    environment: { SERVICE_NAME: users-service, PORT: 5101 }
+    ports: ["5101:5101"]
+
+  schools-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: schools-service } }
+    environment: { SERVICE_NAME: schools-service, PORT: 5102 }
+    ports: ["5102:5102"]
+
+  billing-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: billing-service } }
+    environment: { SERVICE_NAME: billing-service, PORT: 5103 }
+    ports: ["5103:5103"]
+
+  learning-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: learning-service } }
+    environment: { SERVICE_NAME: learning-service, PORT: 5104 }
+    ports: ["5104:5104"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_started }
+      minio:    { condition: service_started }
+
+  admin-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: admin-service } }
+    environment: { SERVICE_NAME: admin-service, PORT: 5105 }
+    ports: ["5105:5105"]
+
+  notifications-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: notifications-service } }
+    environment: { SERVICE_NAME: notifications-service }
+    command: ["python", "-m", "app.worker"]  # worker, not uvicorn
+
+  gateway:
+    image: nginx:1.27-alpine
+    volumes: ["./gateway/nginx.conf:/etc/nginx/nginx.conf:ro"]
+    ports: ["8091:8091"]
+    depends_on: [auth-service, users-service, schools-service, billing-service, learning-service, admin-service]
+    networks: [elimuai_net]
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+
+networks:
+  elimuai_net:
+    driver: bridge

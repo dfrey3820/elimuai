@@ -178,7 +178,7 @@ export default function LoginPage({ lang, setLang, onLogin }) {
                   <input id="pwd" type={showPwd ? "text" : "password"} value={password}
                     onChange={(e) => { setPassword(e.target.value); setError(""); }}
                     onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                    placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                    placeholder="••••••••"
                     className="w-full bg-slate-50 border-2 border-slate-200 rounded-[14px] px-4 py-3.5 pr-12 text-slate-900 text-base font-body font-semibold outline-none transition-colors duration-200 focus:border-purple-600" />
                   <button onClick={() => setShowPwd(!showPwd)} type="button" className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-slate-400 p-0">
                     {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}

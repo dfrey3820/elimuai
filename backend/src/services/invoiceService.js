@@ -32,6 +32,11 @@ const calculateCyclePrice = async (role, cycle) => {
   const discount = await getCycleDiscount(cycle);
   const raw = plan.amount * months;
   const discounted = Math.round(raw * (1 - discount / 100));
+  // Compute exact calendar-day duration (annual = 365 or 366 depending on year)
+  const nowRef = new Date();
+  const endRef = new Date(nowRef);
+  endRef.setMonth(endRef.getMonth() + months);
+  const durationDays = Math.round((endRef - nowRef) / (24 * 60 * 60 * 1000));
   return {
     monthlyPrice: plan.amount,
     months,
@@ -39,7 +44,7 @@ const calculateCyclePrice = async (role, cycle) => {
     originalTotal: raw,
     total: discounted,
     savings: raw - discounted,
-    durationDays: months * 30,
+    durationDays,
     currency: 'KES',
   };
 };
@@ -83,7 +88,8 @@ const createInvoice = async ({ userId, plan, billingCycle, amount, currency = 'K
   const months = CYCLE_MONTHS[billingCycle] || 1;
   const now = new Date();
   const periodStart = now;
-  const periodEnd = new Date(now.getTime() + months * 30 * 24 * 60 * 60 * 1000);
+  const periodEnd = new Date(now);
+  periodEnd.setMonth(periodEnd.getMonth() + months);
   const dueDate = now; // Due immediately for prepaid plans
 
   const { rows } = await db.query(

@@ -1,0 +1,9 @@
+pyproject.toml
+app/__init__.py
+app/worker.py
+notifications_service.egg-info/PKG-INFO
+notifications_service.egg-info/SOURCES.txt
+notifications_service.egg-info/dependency_links.txt
+notifications_service.egg-info/requires.txt
+notifications_service.egg-info/top_level.txt
+tests/test_health.py

@@ -1,0 +1,22 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from elimu_common.auth import Principal, make_principal_dependency, role_checker
+
+from .settings import Settings
+
+settings = Settings()  # type: ignore[call-arg]
+
+get_principal = make_principal_dependency(settings.jwt_secret)
+ParentOnly = Depends(role_checker(get_principal, "parent"))
+TeacherOrAbove = Depends(role_checker(get_principal, "teacher"))
+current_principal = Depends(get_principal)
+
+
+async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
+    async for sess in request.app.state.db.session():
+        yield sess
