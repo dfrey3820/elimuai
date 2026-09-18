@@ -23,6 +23,11 @@ set -euo pipefail
 : "${DESIRED_COUNT:=1}"
 : "${TASK_CPU:=1024}"
 : "${TASK_MEMORY:=3072}"
+# RDS migration toggles (see infra/ecs-fargate-py/stack.yaml). RDS_MASTER_PASSWORD
+# is read from Secrets Manager when CREATE_RDS=true and not provided.
+: "${CREATE_RDS:=false}"
+: "${USE_RDS:=false}"
+: "${RDS_SECRET_NAME:=elimuai/rds-master}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INFRA_DIR="${ROOT}/infra/ecs-fargate-py"
@@ -134,6 +139,14 @@ aws s3 cp "$ENV_FILE" "s3://${CONFIG_BUCKET}/env/prod.env" \
   --sse AES256 --content-type text/plain
 
 # ─── 5. Deploy CloudFormation ───────────────────────────────────────────────
+RDS_PASSWORD="${RDS_MASTER_PASSWORD:-}"
+if [[ "$CREATE_RDS" == "true" && -z "$RDS_PASSWORD" ]]; then
+  log "Fetching RDS master password from Secrets Manager ($RDS_SECRET_NAME)"
+  RDS_PASSWORD=$(aws secretsmanager get-secret-value --secret-id "$RDS_SECRET_NAME" \
+    --region "$AWS_REGION" --query SecretString --output text) \
+    || die "CREATE_RDS=true but secret $RDS_SECRET_NAME not found and RDS_MASTER_PASSWORD unset"
+fi
+
 log "Deploying CloudFormation stack: $STACK_NAME"
 aws cloudformation deploy \
   --template-file "${INFRA_DIR}/stack.yaml" \
@@ -154,6 +167,9 @@ aws cloudformation deploy \
       TaskCpu="$TASK_CPU" \
       TaskMemory="$TASK_MEMORY" \
       PaymentGatewaySecretArn="${PAYMENT_GATEWAY_SECRET_ARN:-}" \
+      CreateRds="$CREATE_RDS" \
+      UseRds="$USE_RDS" \
+      RdsMasterPassword="$RDS_PASSWORD" \
   --no-fail-on-empty-changeset
 
 # ─── 6. Force new deployment (in case only images changed) ──────────────────
