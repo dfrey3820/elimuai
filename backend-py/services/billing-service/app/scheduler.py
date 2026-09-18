@@ -160,13 +160,33 @@ async def _renewal_invoice_for(sess, user_id, plan: str, plan_expires) -> Any:
 async def run_once(app) -> dict[str, int]:
     """Execute a single sweep. Returns counts per kind.
 
-    Safe to call from an admin endpoint for ad-hoc testing.
+    Safe to call from an admin endpoint for ad-hoc testing. A Postgres
+    advisory lock makes the sweep single-flight across scaled-out tasks.
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
     counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0}
 
     async for sess in app.state.db.session():
+        got_lock = (await sess.execute(
+            text("SELECT pg_try_advisory_lock(hashtext('elimuai_reminders_sweep'))")
+        )).scalar()
+        if not got_lock:
+            log.info("reminders.skipped_lock_held")
+            return counts
+        try:
+            counts = await _sweep(sess, settings, bus)
+        finally:
+            await sess.execute(
+                text("SELECT pg_advisory_unlock(hashtext('elimuai_reminders_sweep'))")
+            )
+    log.info("reminders.swept", **counts)
+    return counts
+
+
+async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0}
+    if True:  # keep original body indentation
         # ── Free-plan admins ─────────────────────────────────────────────
         rows = (await sess.execute(
             _FREE_SQL, {"cooldown": settings.reminders_free_cooldown_days},
@@ -249,7 +269,6 @@ async def run_once(app) -> dict[str, int]:
 
         await sess.commit()
 
-    log.info("reminders.swept", **counts)
     return counts
 
 

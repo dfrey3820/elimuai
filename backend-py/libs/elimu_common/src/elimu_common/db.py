@@ -1,6 +1,7 @@
 """Async SQLAlchemy engine + session helpers."""
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -21,11 +22,14 @@ class DB:
     """Holds the engine + sessionmaker for a service. Instantiate once per app."""
 
     def __init__(self, database_url: str, echo: bool = False) -> None:
+        # Sized so 6 services x N tasks stay under RDS max_connections
+        # (~112 on db.t4g.micro): 6 x (4+4) = 48 per task.
         self.engine: AsyncEngine = create_async_engine(
             database_url,
             echo=echo,
-            pool_size=10,
-            max_overflow=20,
+            pool_size=int(os.getenv("DB_POOL_SIZE", "4")),
+            max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "4")),
+            pool_timeout=30,
             pool_pre_ping=True,
             pool_recycle=1800,
         )

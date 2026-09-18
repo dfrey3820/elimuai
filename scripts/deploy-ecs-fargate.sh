@@ -20,7 +20,8 @@ set -euo pipefail
 : "${PUBLIC_SUBNETS:=subnet-06ef9077f6e3c5314,subnet-0d7e057904efb1549,subnet-078ee7580d380c1d4}"
 : "${CERT_ARN:=arn:aws:acm:eu-west-1:977233000130:certificate/8d90fa7e-504e-4a57-9b34-6c0c8ef754e2}"
 : "${IMAGE_TAG:=$(date -u +%Y%m%d%H%M)}"
-: "${DESIRED_COUNT:=1}"
+: "${MIN_TASKS:=1}"
+: "${MAX_TASKS:=4}"
 : "${TASK_CPU:=1024}"
 : "${TASK_MEMORY:=3072}"
 # RDS master password is fetched from Secrets Manager unless provided.
@@ -160,7 +161,8 @@ aws cloudformation deploy \
       AwsRegion="$AWS_REGION" \
       ConfigBucketName="$CONFIG_BUCKET" \
       UploadsBucketName="$UPLOADS_BUCKET" \
-      DesiredCount="$DESIRED_COUNT" \
+      MinTasks="$MIN_TASKS" \
+      MaxTasks="$MAX_TASKS" \
       TaskCpu="$TASK_CPU" \
       TaskMemory="$TASK_MEMORY" \
       PaymentGatewaySecretArn="${PAYMENT_GATEWAY_SECRET_ARN:-}" \

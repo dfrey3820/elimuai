@@ -33,11 +33,13 @@ Parameters:
   UploadsBucketName:
     Type: String
     Description: S3 bucket for user uploads (papers, avatars, etc.)
-  DesiredCount:
+  MinTasks:
     Type: Number
     Default: 1
-    MinValue: 0
-    MaxValue: 2
+    MinValue: 1
+  MaxTasks:
+    Type: Number
+    Default: 4
   TaskCpu:
     Type: String
     Default: '1024'
@@ -126,7 +128,7 @@ Resources:
       DBInstanceIdentifier: !Sub '${ProjectName}-db'
       Engine: postgres
       EngineVersion: '15'
-      DBInstanceClass: db.t4g.micro
+      DBInstanceClass: db.t4g.small
       AllocatedStorage: '20'
       MaxAllocatedStorage: 100
       StorageType: gp3
@@ -440,7 +442,8 @@ Resources:
       ServiceName: !Sub '${ProjectName}-svc'
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinition
-      DesiredCount: !Ref DesiredCount
+      # DesiredCount intentionally omitted — managed by Application Auto Scaling,
+      # so CFN deploys don't reset the task count mid-traffic.
       EnableExecuteCommand: true
       # Stateless task (DB on RDS, redis ephemeral) → zero-downtime rolling deploys.
       DeploymentConfiguration: {MinimumHealthyPercent: 100, MaximumPercent: 200}
@@ -455,6 +458,46 @@ Resources:
           SecurityGroups: [!Ref ServiceSecurityGroup]
       LoadBalancers:
         - {ContainerName: gateway, ContainerPort: 8091, TargetGroupArn: !Ref GatewayTargetGroup}
+
+  # ─── Auto scaling (CPU target tracking) ──────────────────────────────────
+
+  ScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: Service
+    Properties:
+      ServiceNamespace: ecs
+      ScalableDimension: ecs:service:DesiredCount
+      ResourceId: !Sub 'service/${Cluster}/${ProjectName}-svc'
+      MinCapacity: !Ref MinTasks
+      MaxCapacity: !Ref MaxTasks
+      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+
+  CpuScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-cpu-target-tracking'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 60
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  RequestScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub '${ProjectName}-alb-requests-target-tracking'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ALBRequestCountPerTarget
+          ResourceLabel: !Sub '${Alb.LoadBalancerFullName}/${GatewayTargetGroup.TargetGroupFullName}'
+        TargetValue: 500
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
 
 Outputs:
   ClusterName:
