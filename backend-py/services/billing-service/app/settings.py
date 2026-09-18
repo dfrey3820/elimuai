@@ -38,6 +38,12 @@ class Settings(BaseServiceSettings):
     reminders_expiring_days: int = 7
     # For free-plan admins, how often we're allowed to re-send the "start subscription" nudge.
     reminders_free_cooldown_days: int = 7
+    # Lapsed subscriptions: send a renewal invoice up to N times, spaced M days
+    # apart (3 sends 3 days apart ≈ one week of nudges per expiry).
+    reminders_renewal_max_sends: int = 3
+    reminders_renewal_gap_days: int = 3
+    # Public origin used for one-click renewal links in reminder emails.
+    public_base_url: str = "https://elimuai.africa"
 
     # ─── Payment reconciliation sweeper ───────────────────────────────────
     # Periodically polls the payment gateway for pending payments whose

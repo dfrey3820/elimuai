@@ -17,6 +17,7 @@ notifications-service consumes the events and dispatches the emails.
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 from typing import Any
 
 import structlog
@@ -24,6 +25,8 @@ from sqlalchemy import text
 
 from elimu_common.events import EventBus
 
+from .pricing import calculate_cycle_price, create_invoice
+from .routers.renew import make_renew_token
 from .settings import Settings
 
 log = structlog.get_logger(__name__)
@@ -68,6 +71,35 @@ _EXPIRING_SQL = text(
     """
 )
 
+# Lapsed: paid plan already expired and not renewed (a renewal moves
+# plan_expires into the future, disqualifying the row). Any role — personal
+# subscriptions belong to students/parents/teachers too. Capped at
+# :max_sends per expiry date, spaced :gap_days apart.
+_LAPSED_SQL = text(
+    """
+    SELECT u.id, u.email, u.name, u.role, u.plan, u.plan_expires, s.name AS school_name
+    FROM users u
+    LEFT JOIN schools s ON s.id = u.school_id
+    WHERE u.plan <> 'free'
+      AND u.is_active = true
+      AND u.email IS NOT NULL
+      AND u.plan_expires IS NOT NULL
+      AND u.plan_expires < NOW()
+      AND (
+        SELECT COUNT(*) FROM subscription_reminders r
+        WHERE r.user_id = u.id
+          AND r.kind = 'renewal_invoice'
+          AND r.reference = (u.plan_expires)::date
+      ) < :max_sends
+      AND NOT EXISTS (
+        SELECT 1 FROM subscription_reminders r
+        WHERE r.user_id = u.id
+          AND r.kind = 'renewal_invoice'
+          AND r.sent_at > NOW() - make_interval(days => :gap_days)
+      )
+    """
+)
+
 
 async def _record_sent(sess, user_id, kind: str, reference=None) -> None:
     await sess.execute(
@@ -81,6 +113,50 @@ async def _record_sent(sess, user_id, kind: str, reference=None) -> None:
     )
 
 
+async def _renewal_invoice_for(sess, user_id, plan: str, plan_expires) -> Any:
+    """Reuse the pending renewal invoice created after expiry, or create one."""
+    existing = (await sess.execute(
+        text(
+            """
+            SELECT id, invoice_number, amount, currency, billing_cycle
+            FROM invoices
+            WHERE user_id = :uid AND plan = :plan AND status = 'pending'
+              AND created_at > :expired
+            ORDER BY created_at DESC LIMIT 1
+            """
+        ),
+        {"uid": user_id, "plan": plan, "expired": plan_expires},
+    )).mappings().first()
+    if existing:
+        return existing
+
+    # Renew on the user's last billing cycle; default monthly.
+    cycle = (await sess.execute(
+        text(
+            "SELECT billing_cycle FROM payments WHERE user_id = :uid AND status = 'completed' "
+            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+        ),
+        {"uid": user_id},
+    )).scalar_one_or_none() or "monthly"
+    price = await calculate_cycle_price(sess, plan, cycle)
+    inv = await create_invoice(
+        sess,
+        user_id=user_id,
+        plan=plan,
+        billing_cycle=cycle,
+        amount=Decimal(str(price["total"])),
+        subtotal=Decimal(str(price["originalTotal"])),
+        currency=price["currency"],
+    )
+    return {
+        "id": inv.id,
+        "invoice_number": inv.invoice_number,
+        "amount": inv.amount,
+        "currency": inv.currency,
+        "billing_cycle": inv.billing_cycle,
+    }
+
+
 async def run_once(app) -> dict[str, int]:
     """Execute a single sweep. Returns counts per kind.
 
@@ -88,7 +164,7 @@ async def run_once(app) -> dict[str, int]:
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
-    counts = {"free_upgrade": 0, "expiring_soon": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0}
 
     async for sess in app.state.db.session():
         # ── Free-plan admins ─────────────────────────────────────────────
@@ -135,6 +211,41 @@ async def run_once(app) -> dict[str, int]:
                 sess, r["id"], "expiring_soon", reference=expires_at.date(),
             )
             counts["expiring_soon"] += 1
+
+        # ── Lapsed subscribers: renewal invoice, 3 sends over a week ─────
+        rows = (await sess.execute(
+            _LAPSED_SQL,
+            {
+                "max_sends": settings.reminders_renewal_max_sends,
+                "gap_days": settings.reminders_renewal_gap_days,
+            },
+        )).mappings().all()
+        for r in rows:
+            try:
+                inv = await _renewal_invoice_for(sess, r["id"], r["plan"], r["plan_expires"])
+            except Exception as exc:  # noqa: BLE001 — one bad row must not stop the sweep
+                log.error("reminders.renewal_invoice_failed", user_id=str(r["id"]), error=str(exc))
+                continue
+            expires_at = r["plan_expires"]
+            payload = {
+                "user_id": str(r["id"]),
+                "email": r["email"],
+                "name": r["name"] or "there",
+                "role": r["role"],
+                "plan": r["plan"],
+                "plan_expires": expires_at.isoformat() if expires_at else None,
+                "school_name": r["school_name"],
+                "invoice_number": inv["invoice_number"],
+                "amount": str(inv["amount"]),
+                "currency": inv["currency"],
+                "billing_cycle": inv["billing_cycle"],
+                "renew_link": f"{settings.public_base_url}/api/payments/renew/{make_renew_token(inv['id'])}",
+            }
+            await bus.publish("billing.reminder_renewal", payload)
+            await _record_sent(
+                sess, r["id"], "renewal_invoice", reference=expires_at.date(),
+            )
+            counts["renewal_invoice"] += 1
 
         await sess.commit()
 

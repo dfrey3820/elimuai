@@ -72,6 +72,7 @@ TOPICS = (
     "invoice.issued",
     "billing.reminder_free",
     "billing.reminder_expiring",
+    "billing.reminder_renewal",
 )
 
 
@@ -285,6 +286,37 @@ def _reminder_expiring_html(*, name: str, school_name: str, plan: str, plan_expi
     """
 
 
+def _reminder_renewal_html(*, name: str, plan: str, plan_expires: str | None,
+                           invoice_number: str, amount: str, currency: str,
+                           billing_cycle: str, renew_link: str | None) -> str:
+    when = plan_expires.split("T")[0] if plan_expires else "recently"
+    cycle_txt = billing_cycle.replace("_", "-")
+    pay_href = renew_link or "https://elimuai.africa/dashboard?tab=Billing"
+    return f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:24px">
+      <h1 style="color:#EF4444">Your ElimuAI subscription has expired</h1>
+      <p>Hi {name}, your <strong>{plan.title()}</strong> plan expired on <strong>{when}</strong>
+         and AI tutoring, past papers and progress analytics are now paused.</p>
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin:20px 0">
+        <p style="margin:0 0 6px;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:1px">Renewal invoice</p>
+        <p style="margin:0;font-size:15px"><strong>{invoice_number}</strong></p>
+        <p style="margin:6px 0 0;font-size:20px;font-weight:800">{currency} {amount}</p>
+        <p style="margin:4px 0 0;color:#64748b;font-size:12px">{plan.title()} plan · {cycle_txt} billing</p>
+      </div>
+      <p style="margin:24px 0">
+        <a href="{pay_href}"
+           style="background:#EF4444;color:#fff;padding:12px 20px;border-radius:10px;
+                  text-decoration:none;font-weight:700">Pay with M-Pesa</a>
+      </p>
+      <p style="color:#64748b;font-size:12px">
+        The button sends an M-Pesa prompt straight to your registered phone — just enter your PIN.
+        We'll send at most three reminders for this invoice. If you've already renewed,
+        you can ignore this email.
+      </p>
+    </div>
+    """
+
+
 # ─── Event router ───────────────────────────────────────────────────────────
 async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> None:
     if not payload:
@@ -368,6 +400,24 @@ async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> Non
                     plan=payload.get("plan") or "school",
                     plan_expires=payload.get("plan_expires"),
                     days_left=days_left if isinstance(days_left, int) else None,
+                ),
+            )
+
+    elif topic == "billing.reminder_renewal":
+        email = payload.get("email")
+        if email:
+            await send_email(
+                settings, email,
+                f"Renewal invoice {payload.get('invoice_number')} — your ElimuAI plan has expired",
+                _reminder_renewal_html(
+                    name=payload.get("name") or "there",
+                    plan=payload.get("plan") or "student",
+                    plan_expires=payload.get("plan_expires"),
+                    invoice_number=payload.get("invoice_number") or "",
+                    amount=payload.get("amount") or "",
+                    currency=payload.get("currency") or "KES",
+                    billing_cycle=payload.get("billing_cycle") or "monthly",
+                    renew_link=payload.get("renew_link"),
                 ),
             )
 
