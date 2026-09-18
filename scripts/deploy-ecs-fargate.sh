@@ -137,6 +137,16 @@ aws s3 cp "$ENV_FILE" "s3://${CONFIG_BUCKET}/env/prod.env" \
   --sse AES256 --content-type text/plain
 
 # ─── 5. Deploy CloudFormation ───────────────────────────────────────────────
+# Wait for any in-flight stack operation (previous deploy still rolling out)
+# before creating our changeset — CFN rejects concurrent updates.
+for i in $(seq 1 120); do
+  ST=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
+    --region "$AWS_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo NONE)
+  [[ "$ST" != *IN_PROGRESS* ]] && break
+  log "Stack is $ST — waiting for it to settle ($i/120)"
+  sleep 30
+done
+
 RDS_PASSWORD="${RDS_MASTER_PASSWORD:-}"
 if [[ -z "$RDS_PASSWORD" ]]; then
   log "Fetching RDS master password from Secrets Manager ($RDS_SECRET_NAME)"
