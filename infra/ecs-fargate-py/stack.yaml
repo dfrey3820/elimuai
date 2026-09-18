@@ -1,8 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   ElimuAI Python microservices on ECS Fargate.
-  Single Fargate task, 9 containers (postgres, redis, 6 API services, notifications worker, gateway).
-  Shared env via S3 env file. HTTPS ALB using ACM cert. Data on EFS.
+  Single Fargate task, 9 containers (redis, 6 API services, notifications worker, gateway).
+  Postgres on RDS (db.t4g.micro). Shared env via S3 env file. HTTPS ALB using ACM cert.
+  Stateless task -> zero-downtime rolling deploys.
 
 Parameters:
   ProjectName:
@@ -59,31 +60,13 @@ Parameters:
       credentials as a JSON object with keys PAYMENT_GATEWAY_API_KEY and
       PAYMENT_GATEWAY_API_SECRET. Leave empty to disable gateway integration.
 
-  CreateRds:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: Provision the RDS Postgres instance (phase 1 of the EFS->RDS migration).
-
-  UseRds:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: >
-      Cut services over to RDS: drops the in-task postgres container and enables
-      rolling deployments (requires CreateRds=true and data already migrated).
-
   RdsMasterPassword:
     Type: String
-    Default: ''
     NoEcho: true
-    Description: Master password for the RDS instance (required when CreateRds=true).
+    Description: Master password for the RDS instance (from Secrets Manager elimuai/rds-master).
 
 Conditions:
   HasPaymentGatewaySecret: !Not [!Equals [!Ref PaymentGatewaySecretArn, '']]
-  CreateRdsCond: !Equals [!Ref CreateRds, 'true']
-  UseRdsCond: !Equals [!Ref UseRds, 'true']
-  InTaskPostgresCond: !Equals [!Ref UseRds, 'false']
 
 Resources:
   # ─── Security groups ─────────────────────────────────────────────────────
@@ -112,33 +95,16 @@ Resources:
       ToPort: 8091
       SourceSecurityGroupId: !Ref AlbSecurityGroup
 
-  EfsSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: !Sub '${ProjectName} EFS SG'
-      VpcId: !Ref VpcId
-
-  EfsIngressFromService:
-    Type: AWS::EC2::SecurityGroupIngress
-    Properties:
-      GroupId: !Ref EfsSecurityGroup
-      IpProtocol: tcp
-      FromPort: 2049
-      ToPort: 2049
-      SourceSecurityGroupId: !Ref ServiceSecurityGroup
-
-  # ─── RDS Postgres (cheap single-AZ; replaces in-task postgres) ─────────
+  # ─── RDS Postgres ─────────────────────────────────────────────────────
 
   RdsSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    Condition: CreateRdsCond
     Properties:
       GroupDescription: !Sub '${ProjectName} RDS SG'
       VpcId: !Ref VpcId
 
   RdsIngressFromService:
     Type: AWS::EC2::SecurityGroupIngress
-    Condition: CreateRdsCond
     Properties:
       GroupId: !Ref RdsSecurityGroup
       IpProtocol: tcp
@@ -148,14 +114,12 @@ Resources:
 
   RdsSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
-    Condition: CreateRdsCond
     Properties:
       DBSubnetGroupDescription: !Sub '${ProjectName} DB subnets'
       SubnetIds: !Ref PublicSubnets
 
   RdsInstance:
     Type: AWS::RDS::DBInstance
-    Condition: CreateRdsCond
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
@@ -178,58 +142,6 @@ Resources:
       StorageEncrypted: true
       AutoMinorVersionUpgrade: true
       DeletionProtection: true
-
-  # ─── EFS filesystem for postgres + redis persistence ─────────────────────
-
-  EfsFileSystem:
-    Type: AWS::EFS::FileSystem
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    Properties:
-      Encrypted: true
-      PerformanceMode: generalPurpose
-      ThroughputMode: bursting
-      FileSystemTags:
-        - {Key: Name, Value: !Sub '${ProjectName}-data'}
-
-  EfsMountTargetA:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref EfsFileSystem
-      SubnetId: !Select [0, !Ref PublicSubnets]
-      SecurityGroups: [!Ref EfsSecurityGroup]
-
-  EfsMountTargetB:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref EfsFileSystem
-      SubnetId: !Select [1, !Ref PublicSubnets]
-      SecurityGroups: [!Ref EfsSecurityGroup]
-
-  EfsMountTargetC:
-    Type: AWS::EFS::MountTarget
-    Properties:
-      FileSystemId: !Ref EfsFileSystem
-      SubnetId: !Select [2, !Ref PublicSubnets]
-      SecurityGroups: [!Ref EfsSecurityGroup]
-
-  EfsAccessPointPostgres:
-    Type: AWS::EFS::AccessPoint
-    Properties:
-      FileSystemId: !Ref EfsFileSystem
-      PosixUser: {Uid: '999', Gid: '999'}
-      RootDirectory:
-        Path: /postgres
-        CreationInfo: {OwnerUid: '999', OwnerGid: '999', Permissions: '0700'}
-
-  EfsAccessPointRedis:
-    Type: AWS::EFS::AccessPoint
-    Properties:
-      FileSystemId: !Ref EfsFileSystem
-      PosixUser: {Uid: '999', Gid: '1000'}
-      RootDirectory:
-        Path: /redis
-        CreationInfo: {OwnerUid: '999', OwnerGid: '1000', Permissions: '0770'}
 
   # ─── ALB ─────────────────────────────────────────────────────────────────
 
@@ -371,61 +283,13 @@ Resources:
       RuntimePlatform:
         CpuArchitecture: X86_64
         OperatingSystemFamily: LINUX
-      Volumes: !If
-        - InTaskPostgresCond
-        - - Name: postgres-data
-            EFSVolumeConfiguration:
-              FilesystemId: !Ref EfsFileSystem
-              TransitEncryption: ENABLED
-              AuthorizationConfig: {AccessPointId: !Ref EfsAccessPointPostgres, IAM: DISABLED}
-          - Name: redis-data
-            EFSVolumeConfiguration:
-              FilesystemId: !Ref EfsFileSystem
-              TransitEncryption: ENABLED
-              AuthorizationConfig: {AccessPointId: !Ref EfsAccessPointRedis, IAM: DISABLED}
-        - !Ref AWS::NoValue
       ContainerDefinitions:
-        # ─── postgres (in-task; removed once UseRds=true) ─────────────────
-        - !If
-          - InTaskPostgresCond
-          - Name: postgres
-            Image: public.ecr.aws/docker/library/postgres:15-alpine
-            Essential: true
-            User: '999:999'
-            EnvironmentFiles:
-              - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
-            Environment:
-              - {Name: PGDATA, Value: /var/lib/postgresql/data/pgdata}
-            PortMappings: [{ContainerPort: 5432, Protocol: tcp}]
-            MountPoints:
-              - {SourceVolume: postgres-data, ContainerPath: /var/lib/postgresql/data}
-            HealthCheck:
-              Command: [CMD-SHELL, "pg_isready -U elimuai_user -d elimuai_db -h 127.0.0.1 || exit 1"]
-              Interval: 15
-              Timeout: 5
-              Retries: 10
-              StartPeriod: 90
-            LogConfiguration:
-              LogDriver: awslogs
-              Options:
-                awslogs-group: !Ref LogGroup
-                awslogs-region: !Ref AWS::Region
-                awslogs-stream-prefix: postgres
-          - !Ref AWS::NoValue
-
-        # ─── redis (EFS-backed with in-task postgres; ephemeral on RDS) ───
+        # ─── redis (ephemeral — transient events/queues only) ────────────
         - Name: redis
           Image: public.ecr.aws/docker/library/redis:7-alpine
           Essential: true
-          Command: !If
-            - UseRdsCond
-            - [redis-server, --appendonly, 'no']
-            - [redis-server, --appendonly, 'yes', --dir, /data]
+          Command: [redis-server, --appendonly, 'no']
           PortMappings: [{ContainerPort: 6379, Protocol: tcp}]
-          MountPoints: !If
-            - InTaskPostgresCond
-            - - {SourceVolume: redis-data, ContainerPath: /data}
-            - !Ref AWS::NoValue
           HealthCheck:
             Command: [CMD-SHELL, "redis-cli ping | grep -q PONG"]
             Interval: 15
@@ -443,11 +307,8 @@ Resources:
         - Name: auth-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/auth-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -461,11 +322,8 @@ Resources:
         - Name: users-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/users-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -479,11 +337,8 @@ Resources:
         - Name: schools-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/schools-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -497,11 +352,8 @@ Resources:
         - Name: billing-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/billing-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -522,11 +374,8 @@ Resources:
         - Name: learning-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/learning-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -540,11 +389,8 @@ Resources:
         - Name: admin-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/admin-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -558,11 +404,8 @@ Resources:
         - Name: notifications-service
           Image: !Sub '${EcrAccount}.dkr.ecr.${AwsRegion}.amazonaws.com/${ProjectName}/notifications-service:${ImageTag}'
           Essential: true
-          DependsOn: !If
-            - InTaskPostgresCond
-            - - {ContainerName: postgres, Condition: HEALTHY}
-              - {ContainerName: redis,    Condition: HEALTHY}
-            - - {ContainerName: redis, Condition: HEALTHY}
+          DependsOn:
+            - {ContainerName: redis, Condition: HEALTHY}
           EnvironmentFiles:
             - {Value: !Sub 'arn:aws:s3:::${ConfigBucketName}/${EnvFileKey}', Type: s3}
           Environment:
@@ -592,19 +435,15 @@ Resources:
 
   Service:
     Type: AWS::ECS::Service
-    DependsOn: [HttpsListener, EfsMountTargetA, EfsMountTargetB, EfsMountTargetC]
+    DependsOn: [HttpsListener]
     Properties:
       ServiceName: !Sub '${ProjectName}-svc'
       Cluster: !Ref Cluster
       TaskDefinition: !Ref TaskDefinition
       DesiredCount: !Ref DesiredCount
       EnableExecuteCommand: true
-      # In-task postgres on EFS → stop-then-start (downtime per deploy).
-      # With UseRds=true tasks are stateless → zero-downtime rolling deploys.
-      DeploymentConfiguration: !If
-        - UseRdsCond
-        - {MinimumHealthyPercent: 100, MaximumPercent: 200}
-        - {MinimumHealthyPercent: 0, MaximumPercent: 100}
+      # Stateless task (DB on RDS, redis ephemeral) → zero-downtime rolling deploys.
+      DeploymentConfiguration: {MinimumHealthyPercent: 100, MaximumPercent: 200}
       CapacityProviderStrategy:
         - {CapacityProvider: FARGATE_SPOT, Weight: !Ref SpotWeight}
         - {CapacityProvider: FARGATE,      Weight: !Ref OnDemandWeight}
@@ -630,8 +469,5 @@ Outputs:
     Value: !GetAtt Alb.DNSName
   AlbHostedZoneId:
     Value: !GetAtt Alb.CanonicalHostedZoneID
-  EfsFileSystemId:
-    Value: !Ref EfsFileSystem
   RdsEndpoint:
-    Condition: CreateRdsCond
     Value: !GetAtt RdsInstance.Endpoint.Address

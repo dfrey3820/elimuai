@@ -18,10 +18,6 @@ env:
   AWS_ACCOUNT_ID: "977233000130"
   # ARN only — the secret value stays in Secrets Manager.
   PAYMENT_GATEWAY_SECRET_ARN: arn:aws:secretsmanager:eu-west-1:977233000130:secret:elimuai/payment-gateway-S4yUEB
-  # RDS migration complete (2026-09-18): both flags MUST stay "true" —
-  # reverting would resurrect the stale in-task postgres on EFS.
-  CREATE_RDS: "true"
-  USE_RDS: "true"
 
 jobs:
   test:
