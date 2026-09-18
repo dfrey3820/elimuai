@@ -6,7 +6,8 @@ import { apiPost } from "@/utils/api";
 import { CURRICULA } from "@/data/constants";
 import { btnPrimary } from "@/shared/constants";
 import { Spinner, Card, SecTitle, SubjectPills } from "@/components/ui";
-import { BookOpen, CheckCircle, Target, WifiOff, Lock } from "lucide-react";
+import { BookOpen, CheckCircle, Target, WifiOff, Lock, Camera, Pencil } from "lucide-react";
+import PhotoScan from "@/components/PhotoScan";
 
 export default function HomeworkScreen({ country, level, isOffline, lang, user, subStatus, setActive }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
@@ -19,6 +20,8 @@ export default function HomeworkScreen({ country, level, isOffline, lang, user, 
   const [result, setResult] = useState("");
   const [loading, setLoading] = useState(false);
   const [locked, setLocked] = useState(false);
+  // Input tab: text (paste a question) or photo (scan with camera).
+  const [inputTab, setInputTab] = useState("text");
   useEffect(() => {
     if (subStatus && subStatus.billingEnabled && subStatus.aiEnabled === false) setLocked(true);
   }, [subStatus?.aiEnabled, subStatus?.billingEnabled]);
@@ -70,13 +73,42 @@ export default function HomeworkScreen({ country, level, isOffline, lang, user, 
         ))}
       </div>
       <SubjectPills subjects={subjects.slice(0, 6)} active={subject} setActive={setSubject} />
-      <div className="mt-2.5">
-        <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t("type_question_hw")} rows={3} className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none mb-2 box-border" disabled={locked} />
-        {mode === "check" && <textarea value={myAnswer} onChange={(e) => setMyAnswer(e.target.value)} placeholder={t("type_answer")} rows={3} className="w-full bg-white border border-purple-600/20 rounded-xl px-3.5 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none mb-2 box-border" disabled={locked} />}
-        <button onClick={submit} disabled={loading || isOffline || locked} className={`${btnPrimary} mb-3.5 ${(loading || isOffline || locked) ? "opacity-60" : ""}`}>{loading ? <Spinner color="#fff" size={6} /> : mode === "solve" ? <><Target size={16} /> {t("solve_btn")}</> : <><CheckCircle size={16} /> {t("check_btn")}</>}</button>
+
+      <div className="flex bg-slate-50 rounded-xl p-[3px] my-3 border border-slate-200">
+        {[
+          { k: "text",  icon: Pencil, label: lang === "sw" ? "Andika" : "Type it" },
+          { k: "photo", icon: Camera, label: lang === "sw" ? "Piga picha" : "Snap a photo" },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = inputTab === tab.k;
+          return (
+            <button
+              key={tab.k}
+              onClick={() => { setInputTab(tab.k); setResult(""); }}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-[10px] border-none cursor-pointer text-xs font-body font-extrabold ${isActive ? "bg-white text-purple-600 shadow-sm" : "bg-transparent text-slate-400"}`}
+            >
+              <Icon size={14} /> {tab.label}
+            </button>
+          );
+        })}
       </div>
-      {loading && <Spinner />}
-      {result && <Card><SecTitle color={C.accent}>{mode === "solve" ? t("solution") : t("review")}</SecTitle><p className="text-slate-900 text-[13px] font-body leading-relaxed m-0 whitespace-pre-wrap">{result}</p></Card>}
+
+      {inputTab === "photo" ? (
+        <PhotoScan
+          subject={subject}
+          lang={lang}
+          locked={locked || isOffline}
+          onLockedError={() => setLocked(true)}
+        />
+      ) : (
+        <div className="mt-2.5">
+          <textarea value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t("type_question_hw")} rows={3} className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none mb-2 box-border" disabled={locked} />
+          {mode === "check" && <textarea value={myAnswer} onChange={(e) => setMyAnswer(e.target.value)} placeholder={t("type_answer")} rows={3} className="w-full bg-white border border-purple-600/20 rounded-xl px-3.5 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none mb-2 box-border" disabled={locked} />}
+          <button onClick={submit} disabled={loading || isOffline || locked} className={`${btnPrimary} mb-3.5 ${(loading || isOffline || locked) ? "opacity-60" : ""}`}>{loading ? <Spinner color="#fff" size={6} /> : mode === "solve" ? <><Target size={16} /> {t("solve_btn")}</> : <><CheckCircle size={16} /> {t("check_btn")}</>}</button>
+        </div>
+      )}
+      {inputTab === "text" && loading && <Spinner />}
+      {inputTab === "text" && result && <Card><SecTitle color={C.accent}>{mode === "solve" ? t("solution") : t("review")}</SecTitle><p className="text-slate-900 text-[13px] font-body leading-relaxed m-0 whitespace-pre-wrap">{result}</p></Card>}
     </div>
   );
 }

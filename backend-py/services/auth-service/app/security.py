@@ -33,8 +33,15 @@ def generate_tokens(
     secret: str,
     access_ttl_min: int,
     refresh_ttl_min: int,
+    extra_claims: dict | None = None,
 ) -> tuple[str, str, str]:
-    """Returns (access_token, refresh_token, jti)."""
+    """Returns (access_token, refresh_token, jti).
+
+    ``extra_claims`` is merged into the access-token payload only (never the
+    refresh token). Used by admin impersonation to add an ``impersonatedBy``
+    claim so the client and downstream services can distinguish impersonated
+    sessions from normal logins.
+    """
     jti = secrets.token_hex(24)
     uid = str(user_id)
     now = _now()
@@ -47,6 +54,8 @@ def generate_tokens(
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=access_ttl_min)).timestamp()),
     }
+    if extra_claims:
+        access_payload.update(extra_claims)
     refresh_payload = {
         "userId": uid,
         "sub": uid,

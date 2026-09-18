@@ -27,7 +27,7 @@ class Base(DeclarativeBase):
 
 
 PlanType = PgEnum(
-    "free", "student", "family", "school", "enterprise",
+    "free", "student", "teacher", "parent", "family", "school", "enterprise",
     name="plan_type", create_type=False,
 )
 BillingCycle = PgEnum(

@@ -153,6 +153,7 @@ aws cloudformation deploy \
       DesiredCount="$DESIRED_COUNT" \
       TaskCpu="$TASK_CPU" \
       TaskMemory="$TASK_MEMORY" \
+      PaymentGatewaySecretArn="${PAYMENT_GATEWAY_SECRET_ARN:-}" \
   --no-fail-on-empty-changeset
 
 # ─── 6. Force new deployment (in case only images changed) ──────────────────

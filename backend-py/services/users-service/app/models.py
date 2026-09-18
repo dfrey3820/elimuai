@@ -19,8 +19,8 @@ UserRole = PgEnum(
     name="user_role", create_type=False,
 )
 PlanType = PgEnum(
-    "free", "student", "family", "school", "enterprise",
-    name="plan_type", create_type=False,
+    "free", "student", "teacher", "parent", "family", "school", "enterprise",
+    name="plan_type", create_type=False,  # kept in sync with billing-service / DB enum
 )
 CountryCode = PgEnum("KE", "TZ", "UG", name="country_code", create_type=False)
 LanguageCode = PgEnum("en", "sw", name="language_code", create_type=False)

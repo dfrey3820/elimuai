@@ -63,13 +63,18 @@ async def list_subjects(
     principal=current_principal,
     sess: AsyncSession = Depends(get_session),
 ):
+    # Tolerant grade matching: users may have grade_level stored as "9" while
+    # subjects are seeded as "Grade 9 (JSS)" (or vice versa).
     rows = (await sess.execute(
         text(
             """
             SELECT * FROM subjects
             WHERE (CAST(:c AS text) IS NULL OR country = CAST(:c AS country_code))
               AND (CAST(:cu AS text) IS NULL OR curriculum = :cu)
-              AND (CAST(:l AS text) IS NULL OR grade_level = :l)
+              AND (CAST(:l AS text) IS NULL
+                   OR grade_level = :l
+                   OR grade_level ILIKE 'Grade ' || :l || '%'
+                   OR :l ILIKE 'Grade ' || grade_level || '%')
             ORDER BY name
             """
         ),

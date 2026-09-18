@@ -73,6 +73,24 @@ export const CURRICULA = {
   },
 };
 
+// Map free-form grade values ("9", "grade 9", "Grade 9") to a canonical
+// CURRICULA level key ("Grade 9 (JSS)"). Returns raw value if no match.
+export function normalizeGradeLevel(country, raw) {
+  if (!raw) return raw;
+  const levels = Object.keys(CURRICULA[country]?.levels || {});
+  const s = String(raw).trim();
+  const exact = levels.find((l) => l.toLowerCase() === s.toLowerCase());
+  if (exact) return exact;
+  const byPrefix = levels.find((l) => l.toLowerCase().startsWith(s.toLowerCase()));
+  if (byPrefix) return byPrefix;
+  const num = (s.match(/\d+/) || [])[0];
+  if (num) {
+    const byNumber = levels.find((l) => new RegExp(`\\b${num}\\b`).test(l) && /^(grade|standard|form|primary|senior)/i.test(l));
+    if (byNumber) return byNumber;
+  }
+  return raw;
+}
+
 export const PLANS = [
   { id: "free", name: { en: "Free", sw: "Bure" }, price: 0, desc: { en: "Get started", sw: "Anza" }, features: { en: ["5 AI questions/day", "2 practice tests/month", "Basic progress"], sw: ["Maswali 5 ya AI/siku", "Mitihani 2 ya mazoezi/mwezi", "Maendeleo ya msingi"] }, color: "#94A3B8", icon: "🆓" },
   { id: "student", name: { en: "Student Pro", sw: "Mwanafunzi Pro" }, price: 299, desc: { en: "per month", sw: "kwa mwezi" }, features: { en: ["Unlimited AI tutoring", "All past papers", "Photo scan", "Analytics", "Parent weekly report"], sw: ["Mwalimu wa AI bila kikomo", "Karatasi zote za zamani", "Skan ya picha", "Uchambuzi", "Ripoti ya kila wiki kwa mzazi"] }, color: "#9333EA", popular: true, icon: "🎓" },

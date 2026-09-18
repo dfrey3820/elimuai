@@ -5,7 +5,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 CyclePriceDict = dict[str, "CyclePrice"]
 Cycle = Literal["monthly", "quarterly", "semi_annual", "annual"]
@@ -36,6 +36,15 @@ class MpesaInitiateIn(BaseModel):
     phone: str = Field(..., pattern=r"^254\d{9}$", description="MSISDN 254XXXXXXXXX")
     billing_cycle: Cycle = "monthly"
     coupon_code: str | None = None
+    # Optional CH6 Insurance-Agent Network referral code — the agent's unique
+    # code from ``referral_codes``. When supplied and valid, the subsequent
+    # payment success will auto-credit agent/manager/network-head commissions.
+    agent_referral_code: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=50,
+        validation_alias=AliasChoices("agent_referral_code", "agentReferralCode", "agentCode", "agent_code", "ref"),
+    )
 
 
 class MpesaInitiateOut(BaseModel):

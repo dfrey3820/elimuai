@@ -25,6 +25,10 @@ class UserRoleIn(BaseModel):
     role: str = Field(..., pattern=r"^(student|teacher|parent|admin|super_admin)$")
 
 
+class PasswordResetIn(BaseModel):
+    newPassword: str | None = Field(default=None, min_length=6, max_length=200)
+
+
 class SettingsUpdate(BaseModel):
     # accept arbitrary keys — validation done against ALLOWED_KEYS at handler time
     model_config = {"extra": "allow"}

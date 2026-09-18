@@ -470,3 +470,71 @@ async def delete_account(
     await session.commit()
     log.info("user.self_deleted", user_id=str(user.id))
     return {"message": "Account deleted successfully"}
+
+
+# ─── POST /impersonate/{user_id} ─────────────────────────────────────────────
+# Super-admin only. Issues a token pair for the target user so admins can log
+# in "as" a customer to investigate account-specific issues. The access token
+# carries an ``impersonatedBy`` claim; the audit trail lives in ``user_sessions``.
+
+@router.post(
+    "/impersonate/{user_id}",
+    response_model=TokenPairOut,
+    response_model_by_alias=True,
+)
+async def impersonate_user(
+    user_id: str,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    if principal.role != "super_admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super admin role required")
+
+    if str(user_id) == str(principal.user_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot impersonate yourself")
+
+    target = await session.scalar(select(User).where(User.id == user_id))
+    if target is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if not target.is_active:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Target account is not active")
+    if target.role == "super_admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot impersonate another super admin")
+
+    admin_id = str(principal.user_id)
+    access, refresh, jti = generate_tokens(
+        target.id,
+        target.role,
+        secret=settings.jwt_secret,
+        access_ttl_min=settings.jwt_access_ttl_min,
+        refresh_ttl_min=settings.jwt_refresh_ttl_min,
+        extra_claims={"impersonatedBy": admin_id},
+    )
+    now = datetime.utcnow()
+    refresh_expires = now + timedelta(minutes=settings.jwt_refresh_ttl_min)
+
+    session.add(RefreshToken(user_id=target.id, token=refresh, expires_at=refresh_expires))
+    ua = request.headers.get("user-agent") or ""
+    session.add(
+        UserSession(
+            user_id=target.id,
+            token_jti=jti,
+            ip_address=(request.client.host if request.client else None),
+            user_agent=f"[impersonated by {admin_id}] {ua}".strip(),
+            expires_at=refresh_expires,
+        )
+    )
+    await session.commit()
+    log.warning(
+        "user.impersonated",
+        admin_id=admin_id,
+        target_id=str(target.id),
+        target_email=target.email,
+        target_role=target.role,
+    )
+    return TokenPairOut(
+        user=UserOut.model_validate(target),
+        access_token=access,
+        refresh_token=refresh,
+    )

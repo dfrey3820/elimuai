@@ -2,8 +2,9 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/utils/api";
-import { hasAuthToken, clearTokens } from "@/utils/auth";
+import { hasAuthToken, clearTokens, isImpersonating, getImpersonationInfo, stopImpersonation } from "@/utils/auth";
 import { COUNTRY_NAME } from "@/shared/constants";
+import { normalizeGradeLevel } from "@/data/constants";
 import {
   GraduationCap, Users, BookOpen, Settings, ArrowRight,
 } from "lucide-react";
@@ -51,8 +52,9 @@ export default function ElimuAI() {
   useEffect(() => {
     if (user?.plan) setPlan(user.plan);
     if (user?.language) setLang(user.language);
-    if (user?.country && COUNTRY_NAME[user.country]) setCountry(COUNTRY_NAME[user.country]);
-    if (user?.grade_level) setLevel(user.grade_level);
+    const ctry = user?.country && COUNTRY_NAME[user.country] ? COUNTRY_NAME[user.country] : country;
+    if (user?.country && COUNTRY_NAME[user.country]) setCountry(ctry);
+    if (user?.grade_level) setLevel(normalizeGradeLevel(ctry, user.grade_level));
     if (user?.role && !role) {
       const r = user.role;
       setRole(r);
@@ -133,8 +135,32 @@ export default function ElimuAI() {
 
   const isAdmin = role === "admin" || role === "super_admin" || role === "teacher" || role === "student" || role === "parent";
 
+  const impersonating = isImpersonating();
+  const impersonationInfo = impersonating ? getImpersonationInfo() : null;
+  const handleExitImpersonation = () => {
+    stopImpersonation();
+    if (typeof window !== "undefined") window.location.assign("/dashboard");
+  };
+
   return (
     <div className={`bg-slate-50 min-h-screen relative ${isAdmin ? "" : "max-w-2xl mx-auto"}`}>
+      {impersonating && (
+        <div className="sticky top-0 z-[200] bg-amber-500 text-white px-4 py-2 flex items-center justify-between gap-3 shadow-md">
+          <div className="flex items-center gap-2 text-[12px] font-body font-bold">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-white/25 text-[10px]">!</span>
+            <span>
+              Impersonating {impersonationInfo?.targetName || impersonationInfo?.targetEmail || user?.email || "user"}
+              {impersonationInfo?.targetRole ? ` · ${impersonationInfo.targetRole}` : ""}
+            </span>
+          </div>
+          <button
+            onClick={handleExitImpersonation}
+            className="px-3 py-1 rounded-lg bg-white text-amber-600 text-[11px] font-body font-black cursor-pointer border-none hover:bg-amber-50 transition-colors"
+          >
+            Exit impersonation
+          </button>
+        </div>
+      )}
       {!isAdmin && <TopBar lang={lang} setLang={setLang} isOffline={isOffline} setIsOffline={setIsOffline} user={user} onAuthOpen={() => {}} onLogout={handleLogout} />}
       <div className={isAdmin ? "" : "pt-[46px] pb-[72px]"}>{renderScreen()}</div>
       {!isAdmin && <NavBar active={active} setActive={setActive} role={role} lang={lang} />}

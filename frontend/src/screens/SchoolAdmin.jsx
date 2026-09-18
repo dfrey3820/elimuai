@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { C } from "@/theme";
 import { translations } from "@/i18n/translations";
 import { apiPost, apiGet, apiDelete, apiPatch } from "@/utils/api";
-import { hasAuthToken, getAuthHeader, getAuthToken } from "@/utils/auth";
+import { hasAuthToken, getAuthHeader, getAuthToken, startImpersonation } from "@/utils/auth";
 import { CURRICULA } from "@/data/constants";
 import { Spinner, Card, Badge, SecTitle } from "@/components/ui";
 import { inputCls, btnPrimary, btnAccent } from "@/shared/constants";
@@ -16,6 +16,7 @@ import LeaderboardScreen from "@/screens/LeaderboardScreen";
 import ProgressScreen from "@/screens/ProgressScreen";
 import PlansScreen from "@/screens/PlansScreen";
 import LessonsManager from "@/screens/LessonsManager";
+import InsuranceNetworkDashboard from "@/screens/InsuranceNetworkDashboard";
 import {
   Home, Bot, FileText, BookOpen, BarChart3, Trophy, CreditCard,
   GraduationCap, Users, User, Heart, Settings, MessageSquare,
@@ -25,6 +26,7 @@ import {
   Zap, Plus, Edit3, Trash2,
   ChevronRight, AlertTriangle,
   Search, Rocket, Eye, RefreshCw, UserX, UserCheck,
+  Briefcase,
 } from "lucide-react";
 const SettingsIcon = Settings;
 
@@ -94,11 +96,12 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
   const addStudent = () => { if (!newSt.name) return; setStudents((p) => [...p, { id: Date.now(), ...newSt, score: 0, status: "Active" }]); setNewSt({ name: "", grade: "", phone: "" }); setShowAdd(false); };
 
   const [transactions, setTransactions] = useState([]); const [txTotal, setTxTotal] = useState(0); const [txPage, setTxPage] = useState(1); const [txFilter, setTxFilter] = useState(""); const [txLoading, setTxLoading] = useState(false); const [txSearch, setTxSearch] = useState("");
+  const [txActionMsg, setTxActionMsg] = useState(""); const [txActionKind, setTxActionKind] = useState("info"); const [txActionRowId, setTxActionRowId] = useState(null); const [txSweeping, setTxSweeping] = useState(false); const [txReloadKey, setTxReloadKey] = useState(0);
   const [smsLogs, setSmsLogs] = useState([]); const [smsTotal, setSmsTotal] = useState(0); const [smsPage, setSmsPage] = useState(1); const [smsFilter, setSmsFilter] = useState(""); const [smsLoading, setSmsLoading] = useState(false); const [smsSearch, setSmsSearch] = useState("");
   const [dashStats, setDashStats] = useState(null); const [loadingAdmin, setLoadingAdmin] = useState(false);
 
   useEffect(() => { if (!hasAuthToken() || user?.role !== "super_admin") return; setLoadingAdmin(true); apiGet("/api/admin/dashboard").then((d) => setDashStats(d)).catch(() => {}).finally(() => setLoadingAdmin(false)); }, [user?.role]);
-  useEffect(() => { if (!hasAuthToken() || tab !== "Transactions") return; setTxLoading(true); const params = { page: txPage, limit: 20 }; if (txFilter) params.status = txFilter; if (txSearch) params.search = txSearch; apiGet("/api/admin/transactions", params).then((d) => { setTransactions(d?.transactions || []); setTxTotal(d?.total || 0); }).catch(() => {}).finally(() => setTxLoading(false)); }, [tab, txPage, txFilter, txSearch]);
+  useEffect(() => { if (!hasAuthToken() || tab !== "Transactions") return; setTxLoading(true); const params = { page: txPage, limit: 20 }; if (txFilter) params.status = txFilter; if (txSearch) params.search = txSearch; apiGet("/api/admin/transactions", params).then((d) => { setTransactions(d?.transactions || []); setTxTotal(d?.total || 0); }).catch(() => {}).finally(() => setTxLoading(false)); }, [tab, txPage, txFilter, txSearch, txReloadKey]);
   useEffect(() => { if (!hasAuthToken() || tab !== "SMS Logs") return; setSmsLoading(true); const params = { page: smsPage, limit: 20 }; if (smsFilter) params.status = smsFilter; if (smsSearch) params.search = smsSearch; apiGet("/api/admin/sms-logs", params).then((d) => { setSmsLogs(d?.sms_logs || []); setSmsTotal(d?.total || 0); }).catch(() => {}).finally(() => setSmsLoading(false)); }, [tab, smsPage, smsFilter, smsSearch]);
 
   const [settings, setSettings] = useState({}); const [settingsLoading, setSettingsLoading] = useState(false); const [settingsSaved, setSettingsSaved] = useState(false); const [settingsTab, setSettingsTab] = useState("mpesa");
@@ -120,6 +123,75 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
       else setAdminActionMsg(d.error || "Failed");
     } catch { setAdminActionMsg("Request failed"); } finally { setAdminActionLoading(false); setTimeout(() => setAdminActionMsg(""), 4000); }
   };
+  const impersonateUser = async (target) => {
+    if (!target?.id) return;
+    if (!confirm(`Log in as ${target.name || target.email || "this user"}? Your admin session will be restored when you click "Exit impersonation".`)) return;
+    setAdminActionLoading(true); setAdminActionMsg("");
+    try {
+      const d = await apiPost(`/api/auth/impersonate/${target.id}`, {});
+      if (!d?.accessToken) throw new Error("No token returned");
+      startImpersonation(d, target);
+      if (typeof window !== "undefined") window.location.assign("/dashboard");
+    } catch (e) {
+      setAdminActionMsg(e?.message || "Failed to impersonate user");
+      setAdminActionLoading(false);
+      setTimeout(() => setAdminActionMsg(""), 5000);
+    }
+  };
+
+  const flashTxMsg = (msg, kind = "info", ms = 5000) => {
+    setTxActionMsg(msg); setTxActionKind(kind);
+    setTimeout(() => setTxActionMsg(""), ms);
+  };
+  const reconcileTx = async (tx) => {
+    if (!tx?.id) return;
+    if (!confirm(`Re-check payment status with the M-Pesa gateway for ${tx.user_name || tx.user_email || tx.id}?\n\nIf the gateway now reports success/failure, the payment will be updated and the user's plan activated automatically.`)) return;
+    setTxActionRowId(tx.id); setTxActionMsg("");
+    try {
+      const d = await apiPost(`/api/payments/admin/reconcile/${tx.id}`, {});
+      if (d?.already_processed) {
+        flashTxMsg(`Already ${d.status}. No change.`, "info");
+      } else if (d?.reconciled && d?.status === "completed") {
+        flashTxMsg(`Completed — user's plan has been activated.`, "success");
+      } else if (d?.reconciled && d?.status === "failed") {
+        const reason = d?.error ? ` Reason: ${d.error}` : "";
+        flashTxMsg(`Confirmed failed at the gateway.${reason} Ask the customer to retry from their phone.`, "warn", 8000);
+      } else if (d?.reason === "still_pending_at_gateway") {
+        flashTxMsg(`Still pending at the gateway. Try again shortly.`, "info");
+      } else if (d?.reason === "no_gateway_txn_id") {
+        flashTxMsg(`No gateway transaction id stored — cannot reconcile this row.`, "warn");
+      } else if (d?.reason === "gateway_unreachable") {
+        flashTxMsg(`Gateway unreachable: ${d.error || "unknown"}`, "error");
+      } else {
+        flashTxMsg(`Reconciled: ${d?.status || "ok"}`, "info");
+      }
+      setTxReloadKey((k) => k + 1);
+    } catch (e) {
+      flashTxMsg(e?.message || "Failed to reconcile", "error");
+    } finally {
+      setTxActionRowId(null);
+    }
+  };
+  const sweepPendingTxs = async () => {
+    if (!confirm("Sweep all pending M-Pesa payments? This polls the gateway for every stuck payment (older than 90s) and applies the authoritative status.")) return;
+    setTxSweeping(true); setTxActionMsg("");
+    try {
+      const d = await apiPost("/api/payments/admin/reconcile", {});
+      const parts = [
+        `scanned ${d?.scanned ?? 0}`,
+        `reconciled ${d?.reconciled ?? 0}`,
+        `still pending ${d?.still_pending ?? 0}`,
+      ];
+      if (d?.errors) parts.push(`errors ${d.errors}`);
+      flashTxMsg(`Sweep done — ${parts.join(", ")}.`, (d?.reconciled ?? 0) > 0 ? "success" : "info", 7000);
+      setTxReloadKey((k) => k + 1);
+    } catch (e) {
+      flashTxMsg(e?.message || "Sweep failed", "error");
+    } finally {
+      setTxSweeping(false);
+    }
+  };
+
   const [coupons, setCoupons] = useState([]); const [couponsTotal, setCouponsTotal] = useState(0); const [couponsPage, setCouponsPage] = useState(1); const [couponsLoading, setCouponsLoading] = useState(false);
   const [showCouponForm, setShowCouponForm] = useState(false); const [editCoupon, setEditCoupon] = useState(null);
   const [couponForm, setCouponForm] = useState({ code: "", description: "", type: "percentage", value: "", min_amount: "", max_discount: "", applicable_plans: [], applicable_cycles: [], max_uses: "", max_uses_per_user: "1", starts_at: "", expires_at: "" });
@@ -486,7 +558,7 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
     ? [{ l: "Overview", icon: BarChart3 }, { l: "Transactions", icon: CreditCard }, { l: "Subscriptions", icon: Receipt }, { l: "SMS Logs", icon: Smartphone },
        { l: "Users", icon: Users }, { l: "Students", icon: GraduationCap }, { l: "Teachers", icon: BookOpen },
        { l: "Exams", icon: FileText }, { l: "Lessons", icon: Download },
-       { l: "Coupons", icon: Tag }, { l: "Settings", icon: SettingsIcon }, { l: "Reports", icon: TrendingUp }]
+       { l: "Coupons", icon: Tag }, { l: "Insurance Network", icon: Briefcase }, { l: "Settings", icon: SettingsIcon }, { l: "Reports", icon: TrendingUp }]
     : isTeacher
     ? [
         { l: "Overview", icon: BarChart3 },
@@ -707,8 +779,30 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
             <div className="p-5 border-b border-slate-100">
               <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-purple-600 flex items-center justify-center"><CreditCard size={15} color="#fff" /></div><h4 className="text-slate-900 text-sm font-heading font-black m-0">{txTotal} Transactions</h4></div>
-                {searchBox(txSearch, (e) => { setTxSearch(e.target.value); setTxPage(1); }, "Search by name, email, ref...")}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {searchBox(txSearch, (e) => { setTxSearch(e.target.value); setTxPage(1); }, "Search by name, email, ref...")}
+                  <button
+                    onClick={sweepPendingTxs}
+                    disabled={txSweeping}
+                    title="Poll the payment gateway for every pending payment older than 90s and apply the authoritative status"
+                    className={`py-2 px-3 rounded-lg border text-[11px] font-body font-bold flex items-center gap-1.5 transition-colors ${txSweeping ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed" : "bg-purple-600 text-white border-purple-600 hover:bg-purple-700 cursor-pointer"}`}
+                  >
+                    <RefreshCw size={12} className={txSweeping ? "animate-spin" : ""} />
+                    {txSweeping ? "Sweeping…" : "Sweep pending"}
+                  </button>
+                </div>
               </div>
+              {txActionMsg && (
+                <div className={`mb-3 px-3 py-2 rounded-lg text-[11px] font-body font-bold flex items-center gap-2 border ${
+                  txActionKind === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-700" :
+                  txActionKind === "warn" ? "bg-amber-50 border-amber-200 text-amber-700" :
+                  txActionKind === "error" ? "bg-rose-50 border-red-200 text-red-500" :
+                  "bg-slate-50 border-slate-200 text-slate-600"
+                }`}>
+                  {txActionKind === "success" ? <CheckCircle size={13} /> : txActionKind === "error" ? <AlertTriangle size={13} /> : <RefreshCw size={13} />}
+                  {txActionMsg}
+                </div>
+              )}
               <div className="flex gap-1.5 flex-wrap">
                 {["", "completed", "pending", "failed"].map((f) => (<button key={f || "all"} onClick={() => { setTxFilter(f); setTxPage(1); }} className={tblFilterBtn(txFilter === f)}>{f || "All"}</button>))}
               </div>
@@ -716,20 +810,48 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-slate-50/80">
-                  <tr><th className={thCls}>User</th><th className={thCls}>Amount</th><th className={thCls}>Status</th><th className={thCls}>Plan</th><th className={thCls}>Method</th><th className={thCls}>Date</th><th className={thCls}>Receipt</th></tr>
+                  <tr><th className={thCls}>User</th><th className={thCls}>Amount</th><th className={thCls}>Status</th><th className={thCls}>Plan</th><th className={thCls}>Method</th><th className={thCls}>Date</th><th className={thCls}>Receipt</th><th className={thCls}>Actions</th></tr>
                 </thead>
                 <tbody>
-                  {txLoading && tblSkeleton(7)}
-                  {!txLoading && transactions.length === 0 && <tr><td colSpan={7} className="text-center text-slate-400 text-xs font-body py-10">No transactions found</td></tr>}
+                  {txLoading && tblSkeleton(8)}
+                  {!txLoading && transactions.length === 0 && <tr><td colSpan={8} className="text-center text-slate-400 text-xs font-body py-10">No transactions found</td></tr>}
                   {!txLoading && transactions.map((tx) => (
                     <tr key={tx.id} className={trCls}>
                       <td className={tdCls}><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white text-[11px] font-bold shrink-0">{(tx.user_name || "?")[0]}</div><div><p className="text-slate-900 text-[12px] font-body font-bold m-0">{tx.user_name || "Unknown"}</p><p className="text-slate-400 text-[10px] font-body m-0">{tx.user_email || tx.phone_number}</p></div></div></td>
                       <td className={`${tdCls} text-slate-900 font-bold`}>KES {Number(tx.amount).toLocaleString()}</td>
-                      <td className={tdCls}><Badge color={tx.status === "completed" ? C.accent : tx.status === "pending" ? C.gold : C.error}>{tx.status}</Badge></td>
+                      <td className={tdCls}>
+                        <Badge color={tx.status === "completed" ? C.accent : tx.status === "pending" ? C.gold : C.error}>{tx.status}</Badge>
+                        {tx.status !== "completed" && tx.metadata?.error && (
+                          <p title={typeof tx.metadata.error === "string" ? tx.metadata.error : ""} className="text-slate-500 text-[10px] font-body m-0 mt-1 max-w-[180px] truncate">
+                            {tx.metadata.error}
+                          </p>
+                        )}
+                      </td>
                       <td className={tdCls}>{tx.plan}</td>
                       <td className={tdCls}>{tx.method}</td>
                       <td className={`${tdCls} text-slate-400`}>{new Date(tx.created_at).toLocaleDateString()}</td>
                       <td className={`${tdCls} text-emerald-600 text-[10px]`}>{tx.mpesa_receipt || "—"}</td>
+                      <td className={tdCls}>
+                        {tx.status === "completed" ? (
+                          <span className="text-slate-300 text-[10px] font-body">—</span>
+                        ) : (
+                          <button
+                            onClick={() => reconcileTx(tx)}
+                            disabled={txActionRowId === tx.id}
+                            title="Query the payment gateway for the latest status and complete/fail the transaction accordingly"
+                            className={`py-1.5 px-2.5 rounded-lg border text-[10px] font-body font-bold flex items-center gap-1 transition-colors ${
+                              txActionRowId === tx.id
+                                ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed"
+                                : tx.status === "failed"
+                                  ? "bg-rose-50 text-red-600 border-rose-200 hover:bg-rose-100 cursor-pointer"
+                                  : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                            }`}
+                          >
+                            <RefreshCw size={11} className={txActionRowId === tx.id ? "animate-spin" : ""} />
+                            {txActionRowId === tx.id ? "Checking…" : tx.status === "failed" ? "Retry check" : "Reconcile"}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -2116,6 +2238,16 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
             {/* ADMIN ACTIONS SUB-TAB */}
             {userDetailTab === "admin" && (<div className="space-y-5">
               {adminActionMsg && <div className={`px-4 py-2.5 rounded-xl text-[12px] font-body font-bold ${adminActionMsg.includes("Failed") || adminActionMsg.includes("failed") || adminActionMsg.includes("error") || adminActionMsg.includes("Error") ? "bg-rose-50 text-red-500" : "bg-emerald-50 text-emerald-600"}`}>{adminActionMsg}</div>}
+              {/* Impersonate — super_admin only, cannot target other super admins */}
+              {isSuperAdmin && u.role !== "super_admin" && u.id !== user?.id && (
+                <div className="bg-white rounded-2xl shadow-sm border border-amber-200 overflow-hidden">
+                  <div className="px-5 py-3.5 border-b border-amber-100 bg-amber-50/60"><h4 className="text-slate-900 text-[13px] font-heading font-black m-0 flex items-center gap-2"><UserCheck size={14} className="text-amber-600" /> Impersonate User</h4></div>
+                  <div className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <p className="text-slate-500 text-[11px] font-body m-0 max-w-xl">Log in as this user to see their account exactly as they do. Your admin session is preserved and can be restored at any time via the yellow banner at the top of the page. All impersonated sessions are logged.</p>
+                    <button onClick={() => impersonateUser(u)} disabled={adminActionLoading || !u.is_active} className="py-2.5 px-4 rounded-xl border-none cursor-pointer bg-amber-500 text-white text-[11px] font-body font-bold shadow-sm hover:shadow-lg transition-shadow flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"><UserCheck size={13} /> Login as {u.name?.split(" ")[0] || "user"}</button>
+                  </div>
+                </div>
+              )}
               {/* Upgrade / Cancel Subscription */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="px-5 py-3.5 border-b border-slate-100"><h4 className="text-slate-900 text-[13px] font-heading font-black m-0 flex items-center gap-2"><CreditCard size={14} className="text-purple-600" /> Manage Subscription</h4></div>
@@ -2312,6 +2444,13 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
           </div>}
           </div>
         </>)}
+
+        {/* INSURANCE NETWORK (CH6) — super_admin only */}
+        {tab === "Insurance Network" && isSuperAdmin && (
+          <div className="-mx-4 -my-4 md:-mx-6 md:-my-6">
+            <InsuranceNetworkDashboard role="network_head" />
+          </div>
+        )}
       </div>
 
       {/* Student: Set / Promote Class Modal — mandatory first-time, once per year afterwards.

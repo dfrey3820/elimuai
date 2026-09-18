@@ -2,6 +2,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { hasAuthToken, clearTokens, setTokens } from "@/utils/auth";
 import { apiGet } from "@/utils/api";
+import { normalizeGradeLevel } from "@/data/constants";
 
 const AppContext = createContext(null);
 
@@ -40,9 +41,9 @@ export function AppProvider({ children }) {
     if (!user) return;
     if (user.plan) setPlan(user.plan);
     if (user.language) setLang(user.language);
-    if (user.country && COUNTRY_NAME[user.country])
-      setCountry(COUNTRY_NAME[user.country]);
-    if (user.grade_level) setLevel(user.grade_level);
+    const ctry = user.country && COUNTRY_NAME[user.country] ? COUNTRY_NAME[user.country] : country;
+    if (user.country && COUNTRY_NAME[user.country]) setCountry(ctry);
+    if (user.grade_level) setLevel(normalizeGradeLevel(ctry, user.grade_level));
     if (user.role && !role) {
       const r = user.role;
       setRole(r === "super_admin" ? "admin" : r);

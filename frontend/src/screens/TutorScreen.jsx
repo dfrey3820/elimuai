@@ -6,7 +6,8 @@ import { apiPost } from "@/utils/api";
 import { CURRICULA } from "@/data/constants";
 import { OFFLINE_LESSONS } from "@/shared/constants";
 import { Spinner, Card, Badge, SecTitle, SubjectPills } from "@/components/ui";
-import { Bot, Send, WifiOff, Download, Check, Lock } from "lucide-react";
+import { Bot, Send, WifiOff, Download, Check, Lock, Camera, X } from "lucide-react";
+import PhotoScan from "@/components/PhotoScan";
 
 export default function TutorScreen({ country, level, isOffline, lang, user, subStatus, setActive }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
@@ -21,6 +22,8 @@ export default function TutorScreen({ country, level, isOffline, lang, user, sub
   const [savingIdx, setSavingIdx] = useState(null);
   // Set to true if the server returns 402 — AI is locked until the user upgrades.
   const [locked, setLocked] = useState(false);
+  // Show the photo-scan panel above the input bar when true.
+  const [showPhotoScan, setShowPhotoScan] = useState(false);
   const endRef = useRef();
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
   useEffect(() => {
@@ -148,9 +151,48 @@ export default function TutorScreen({ country, level, isOffline, lang, user, sub
           </div>
         </div>
       ) : (
-        <div className="px-3 py-2 bg-white border-t border-slate-200 flex gap-2 items-end fixed bottom-[62px] left-0 right-0 max-w-[520px] mx-auto box-border">
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`${t("type_question")} (${subject})`} rows={1} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none" />
-          <button onClick={send} disabled={loading} className={`w-10 h-10 rounded-xl border-none cursor-pointer bg-gradient-primary flex items-center justify-center ${loading ? "opacity-50" : ""}`}><Send size={16} color="#fff" /></button>
+        <div className="fixed bottom-[62px] left-0 right-0 max-w-[520px] mx-auto box-border">
+          {showPhotoScan && (
+            <div className="px-3 pt-2 pb-1 bg-white border-t border-slate-200 max-h-[70vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[11px] font-body font-extrabold text-purple-600 uppercase tracking-wider m-0">
+                  {lang === "sw" ? "Piga picha ya kazi yako" : "Snap a photo of your work"}
+                </p>
+                <button
+                  onClick={() => setShowPhotoScan(false)}
+                  className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 border-none cursor-pointer flex items-center justify-center"
+                  aria-label={lang === "sw" ? "Funga" : "Close"}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+              <PhotoScan
+                subject={subject}
+                lang={lang}
+                locked={locked}
+                onLockedError={() => setLocked(true)}
+                onComplete={({ mode, text }) => {
+                  const label = mode === "mark"
+                    ? (lang === "sw" ? "📷 Ukaguzi wa picha" : "📷 Photo marking")
+                    : (lang === "sw" ? "📷 Ufafanuzi wa picha" : "📷 Photo explanation");
+                  setMsgs((p) => [...p, { role: "assistant", text: `**${label}**\n\n${text}` }]);
+                  setShowPhotoScan(false);
+                }}
+              />
+            </div>
+          )}
+          <div className="px-3 py-2 bg-white border-t border-slate-200 flex gap-2 items-end">
+            <button
+              onClick={() => setShowPhotoScan((v) => !v)}
+              disabled={loading || isOffline}
+              title={lang === "sw" ? "Piga picha" : "Photo scan"}
+              className={`w-10 h-10 rounded-xl border-2 cursor-pointer flex items-center justify-center shrink-0 ${showPhotoScan ? "border-purple-600 bg-purple-50 text-purple-600" : "border-slate-200 bg-white text-slate-500"} ${(loading || isOffline) ? "opacity-50 cursor-not-allowed" : ""}`}
+            >
+              <Camera size={16} />
+            </button>
+            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder={`${t("type_question")} (${subject})`} rows={1} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-slate-900 text-[13px] font-body resize-none outline-none" />
+            <button onClick={send} disabled={loading} className={`w-10 h-10 rounded-xl border-none cursor-pointer bg-gradient-primary flex items-center justify-center ${loading ? "opacity-50" : ""}`}><Send size={16} color="#fff" /></button>
+          </div>
         </div>
       )}
     </div>

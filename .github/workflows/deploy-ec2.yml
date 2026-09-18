@@ -1,8 +1,8 @@
 name: Deploy EC2 (Cheapest Path)
 
+# LEGACY: EC2 host terminated 2026-07-12. Prod deploys now run via
+# deploy-fargate.yml. Kept for manual dispatch only.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

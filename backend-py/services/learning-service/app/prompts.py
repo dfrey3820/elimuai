@@ -29,7 +29,8 @@ def tutor_system_prompt(*, subject: str, curriculum: str | None, grade_level: st
     curric = curriculum_ctx(curriculum, grade_level)
     parts = [
         lang["tutorIntro"],
-        f"Currently tutoring: {subject} for {grade_level or 'the student'} under {curric}",
+        f"The student's currently selected subject is {subject}, studying as {grade_level or 'the student'} under {curric}",
+        "If the student asks about a different subject, help them anyway — NEVER refuse or say you are configured for only one subject.",
         lang["stepInstruct"],
         lang["encourage"],
         "Never just give answers — teach the concept so the student understands WHY.",

@@ -461,8 +461,9 @@ COMMENT ON TABLE ai_sessions IS 'Full AI conversation history per user';
 COMMENT ON TABLE weekly_reports IS 'Auto-generated weekly summaries sent to parents';
 
 -- ─── OTP tokens for email/login verification ──────────────────────────────────
+-- id is UUID to match the Python auth-service ORM (and migrate_otp.sql / prod).
 CREATE TABLE IF NOT EXISTS otp_tokens (
-  id            SERIAL PRIMARY KEY,
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id       UUID REFERENCES users(id) ON DELETE CASCADE,
   email         VARCHAR(255) NOT NULL,
   code          VARCHAR(10) NOT NULL,

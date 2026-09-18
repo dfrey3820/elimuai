@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import AdminOnly, get_session
-from ..schemas import DashboardOut, SettingsUpdate, UserListOut, UserRoleIn
+from ..schemas import DashboardOut, PasswordResetIn, SettingsUpdate, UserListOut, UserRoleIn
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -164,29 +164,89 @@ async def user_detail(user_id: uuid.UUID, sess: AsyncSession = Depends(get_sessi
         ),
         {"id": user_id},
     )).mappings().all()
+    ai_sessions = (await sess.execute(
+        text(
+            "SELECT id, type, language, xp_earned, jsonb_array_length(messages) AS message_count, "
+            "created_at, updated_at FROM ai_sessions WHERE user_id = :id "
+            "ORDER BY created_at DESC LIMIT 20"
+        ),
+        {"id": user_id},
+    )).mappings().all()
+    ai_stats = (await sess.execute(
+        text(
+            "SELECT COUNT(*) AS total_sessions, "
+            "COALESCE(SUM(jsonb_array_length(messages)), 0) AS total_messages, "
+            "COALESCE(SUM(xp_earned), 0) AS total_ai_xp "
+            "FROM ai_sessions WHERE user_id = :id"
+        ),
+        {"id": user_id},
+    )).mappings().first()
 
     return {
         "user": dict(user),
         "activity": [dict(r) for r in activity],
         "payments": [dict(r) for r in payments],
         "invoices": [dict(r) for r in invoices],
+        "aiSessions": [dict(r) for r in ai_sessions],
+        "aiStats": dict(ai_stats) if ai_stats else {"total_sessions": 0, "total_messages": 0, "total_ai_xp": 0},
     }
 
 
 @router.patch("/users/{user_id}/role", dependencies=[AdminOnly])
+@router.put("/users/{user_id}/role", dependencies=[AdminOnly])
 async def update_user_role(
     user_id: uuid.UUID,
     body: UserRoleIn,
     sess: AsyncSession = Depends(get_session),
 ):
     row = (await sess.execute(
-        text("UPDATE users SET role = :r, updated_at = NOW() WHERE id = :id RETURNING id, role"),
+        text("UPDATE users SET role = :r, updated_at = NOW() WHERE id = :id "
+             "RETURNING id, name, email, role, is_active"),
         {"r": body.role, "id": user_id},
     )).mappings().first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     await sess.commit()
-    return dict(row)
+    return {"user": dict(row)}
+
+
+@router.put("/users/{user_id}/toggle-active", dependencies=[AdminOnly])
+async def toggle_user_active(
+    user_id: uuid.UUID,
+    sess: AsyncSession = Depends(get_session),
+):
+    row = (await sess.execute(
+        text("UPDATE users SET is_active = NOT is_active, updated_at = NOW() "
+             "WHERE id = :id RETURNING id, name, email, role, is_active"),
+        {"id": user_id},
+    )).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    await sess.commit()
+    return {"user": dict(row)}
+
+
+@router.post("/users/{user_id}/reset-password", dependencies=[AdminOnly])
+async def reset_user_password(
+    user_id: uuid.UUID,
+    body: PasswordResetIn | None = None,
+    sess: AsyncSession = Depends(get_session),
+):
+    import secrets
+    import bcrypt
+
+    new_pw = (body.newPassword if body else None) or secrets.token_hex(4)
+    pw_hash = bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt(rounds=12)).decode()
+    row = (await sess.execute(
+        text("UPDATE users SET password_hash = :h, updated_at = NOW() "
+             "WHERE id = :id RETURNING id, email"),
+        {"h": pw_hash, "id": user_id},
+    )).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    await sess.commit()
+    # Return temp password so admin can relay it (Node parity behaviour).
+    return {"message": "Password reset", "tempPassword": new_pw}
 
 
 @router.get("/transactions", dependencies=[AdminOnly])
@@ -207,6 +267,7 @@ async def transactions(
             f"""
             SELECT p.id, p.plan, p.amount, p.currency, p.method, p.status,
                    p.mpesa_receipt, p.phone_number, p.reference, p.created_at, p.completed_at,
+                   p.metadata,
                    u.name AS user_name, u.email AS user_email
             FROM payments p LEFT JOIN users u ON p.user_id = u.id
             {where}

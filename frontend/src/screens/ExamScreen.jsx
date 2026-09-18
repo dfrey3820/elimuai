@@ -4,7 +4,7 @@ import { C } from "@/theme";
 import { translations } from "@/i18n/translations";
 import { apiPost, apiGet } from "@/utils/api";
 import { hasAuthToken } from "@/utils/auth";
-import { CURRICULA } from "@/data/constants";
+import { CURRICULA, normalizeGradeLevel } from "@/data/constants";
 import { COUNTRY_CODE, btnPrimary } from "@/shared/constants";
 import { Spinner, Card, Badge, SecTitle } from "@/components/ui";
 import {
@@ -21,7 +21,7 @@ export default function ExamScreen({ country, level, lang, user }) {
   const curr = CURRICULA[country];
   const countryCode = COUNTRY_CODE[country];
   const curriculum = curr.curriculum;
-  const effectiveLevel = user?.grade_level || level;
+  const effectiveLevel = normalizeGradeLevel(country, user?.grade_level || level);
 
   const [mode, setMode] = useState("browse"); // browse | practice | results
   const [subjects, setSubjects] = useState([]);

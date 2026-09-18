@@ -25,6 +25,17 @@ services:
       - ../backend/src/db/migrate_otp.sql:/docker-entrypoint-initdb.d/03_otp.sql
       - ../backend/src/db/migrate_invoices.sql:/docker-entrypoint-initdb.d/04_invoices.sql
       - ../backend/src/db/migrate_coupons.sql:/docker-entrypoint-initdb.d/05_coupons.sql
+      # backend-py migrations (also applied manually in prod — see repo docs)
+      - ./scripts/003_channels_base.sql:/docker-entrypoint-initdb.d/06_channels_base.sql
+      - ./scripts/004_ch6_migration.sql:/docker-entrypoint-initdb.d/07_ch6_migration.sql
+      - ./scripts/005_teacher_class_subject.sql:/docker-entrypoint-initdb.d/08_teacher_class_subject.sql
+      - ./scripts/006_subscription_reminders.sql:/docker-entrypoint-initdb.d/09_subscription_reminders.sql
+      - ./scripts/007_grade_level_updated_at.sql:/docker-entrypoint-initdb.d/10_grade_level_updated_at.sql
+      - ./scripts/008_past_papers_school_scope.sql:/docker-entrypoint-initdb.d/11_past_papers_school_scope.sql
+      - ./scripts/009_offline_lessons_school_scope.sql:/docker-entrypoint-initdb.d/12_offline_lessons_school_scope.sql
+      - ./scripts/010_marketing_agents.sql:/docker-entrypoint-initdb.d/13_marketing_agents.sql
+      - ./scripts/011_plan_type_add_teacher_parent.sql:/docker-entrypoint-initdb.d/14_plan_type_add_teacher_parent.sql
+      - ./scripts/012_past_papers_ai_questions.sql:/docker-entrypoint-initdb.d/15_past_papers_ai_questions.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U elimuai_user -d elimuai_db"]
       interval: 10s
@@ -102,6 +113,12 @@ services:
     build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: notifications-service } }
     environment: { SERVICE_NAME: notifications-service }
     command: ["python", "-m", "app.worker"]  # worker, not uvicorn
+
+  mpesa-service:
+    <<: *py-http-service
+    build: { context: ., dockerfile: services/Dockerfile, args: { SERVICE: mpesa-service } }
+    environment: { SERVICE_NAME: mpesa-service, PORT: 5002 }
+    ports: ["5002:5002"]
 
   gateway:
     image: nginx:1.27-alpine

@@ -10,6 +10,10 @@ logs/
 .vscode/
 coverage/
 *.bak
+__pycache__/
+*.pyc
+.venv/
+frontend/out/
 
 # ECS Fargate secrets
 infra/ecs-fargate-py/prod.env

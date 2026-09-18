@@ -9,6 +9,7 @@ import { Spinner, Card, Badge, SecTitle } from "@/components/ui";
 import {
   CreditCard, CheckCircle, Smartphone, Receipt, Tag,
   Mail, Download, AlertTriangle,
+  Briefcase,
 } from "lucide-react";
 
 export default function BillingScreen({ user, lang, onPaid }) {
@@ -25,9 +26,26 @@ export default function BillingScreen({ user, lang, onPaid }) {
   const [couponResult, setCouponResult] = useState(null);
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponErr, setCouponErr] = useState("");
+  // CH6 insurance-agent referral code — pre-filled from ?ref=CODE URL param
+  // (also captured to localStorage so the code survives navigation/login).
+  const [agentCode, setAgentCode] = useState("");
   const pollRef = useRef(null);
   const userRole = (user?.role === "admin" || user?.role === "super_admin") ? "school" : (user?.role || "student");
   useEffect(() => { apiGet("/api/payments/subscription-info").then((d) => setSubInfo(d)).catch(() => setSubInfo(null)); if (hasAuthToken()) apiGet("/api/payments/invoices").then((d) => setInvoices(d?.invoices || [])).catch(() => {}); }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = (params.get("ref") || params.get("agent") || "").trim().toUpperCase();
+      if (ref) {
+        window.localStorage.setItem("elimu_agent_ref", ref);
+        setAgentCode(ref);
+      } else {
+        const stored = window.localStorage.getItem("elimu_agent_ref");
+        if (stored) setAgentCode(stored);
+      }
+    } catch { /* SSR / private-mode noop */ }
+  }, []);
   useEffect(() => { return () => { if (pollRef.current) clearInterval(pollRef.current); }; }, []);
   const pricing = subInfo?.pricing?.[userRole];
   const selected = pricing?.[cycle];
@@ -52,6 +70,7 @@ export default function BillingScreen({ user, lang, onPaid }) {
     try {
       const payload = { plan: userRole, phone: cleanPhone, billing_cycle: cycle };
       if (couponCode.trim()) payload.coupon_code = couponCode.trim();
+      if (agentCode.trim()) payload.agent_referral_code = agentCode.trim().toUpperCase();
       const data = await apiPost("/api/payments/mpesa/initiate", payload);
       if (data?.paymentId) {
         setPaymentId(data.paymentId); setStep("polling");
@@ -115,6 +134,21 @@ export default function BillingScreen({ user, lang, onPaid }) {
             </div>
             {couponResult && <p className="text-emerald-500 text-[11px] font-body font-bold mt-1.5 mb-0">{couponResult.coupon.description || couponResult.coupon.code}: -KES {couponResult.discount.toLocaleString()}</p>}
             {couponErr && <p className="text-red-500 text-[11px] font-body mt-1.5 mb-0">{couponErr}</p>}
+          </Card>
+          <Card className="mb-3.5">
+            <p className="text-slate-400 text-[11px] font-body font-bold mb-1.5 mt-0 flex items-center gap-1"><Briefcase size={14} /> {lang === "sw" ? "Msimbo wa Wakala (Hiari)" : "Agent Referral Code (Optional)"}</p>
+            <input
+              value={agentCode}
+              onChange={(e) => setAgentCode(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+              placeholder={lang === "sw" ? "k.m. AGT-1042" : "e.g. AGT-1042"}
+              maxLength={32}
+              className={inputCls}
+            />
+            <p className="text-slate-400 text-[10px] font-body mt-1 mb-0">
+              {lang === "sw"
+                ? "Ikiwa wakala amekusaidia kujiandikisha, weka msimbo wao ili wapate malipo."
+                : "If an ElimuAI agent helped you sign up, enter their code so they get credited for the sale."}
+            </p>
           </Card>
           <Card className="mb-3.5">
             <p className="text-slate-400 text-[11px] font-body font-bold mb-1.5 mt-0 flex items-center gap-1"><Smartphone size={14} /> {lang === "sw" ? "Namba ya Safaricom" : "Safaricom Number"}</p>

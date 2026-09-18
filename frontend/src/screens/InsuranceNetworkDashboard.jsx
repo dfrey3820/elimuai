@@ -33,6 +33,35 @@ async function apiGet(path) {
   return r.json();
 }
 
+async function apiError(r) {
+  const body = await r.json().catch(() => null);
+  return new Error((body && (body.detail || body.message)) || `Request failed (${r.status})`);
+}
+
+async function apiPost(path, body) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw await apiError(r);
+  return r.json();
+}
+
+async function apiUpload(path, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { ...getAuthHeader() },
+    credentials: "include",
+    body: fd,
+  });
+  if (!r.ok) throw await apiError(r);
+  return r.json();
+}
+
 function StatCard({ label, value, sub, color = BLUE }) {
   return (
     <div style={{ background: "#fff", borderRadius: 10, padding: "18px 22px", boxShadow: "0 1px 6px rgba(0,0,0,0.08)", borderTop: `4px solid ${color}`, flex: 1, minWidth: 160 }}>
@@ -105,6 +134,136 @@ function ReferralBox({ code, link }) {
   );
 }
 
+const inputStyle = { width: "100%", boxSizing: "border-box", padding: "9px 12px", border: "1px solid #d5dae3", borderRadius: 8, fontSize: 13, outline: "none" };
+
+function Field({ label, required, ...props }) {
+  return (
+    <label style={{ display: "block", marginBottom: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#555", marginBottom: 4 }}>
+        {label} {required && <span style={{ color: "#c00" }}>*</span>}
+      </div>
+      <input style={inputStyle} required={required} {...props} />
+    </label>
+  );
+}
+
+function CreateNetworkModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({
+    network_name: "", head_full_name: "", head_phone: "",
+    head_mpesa_number: "", head_email: "", insurance_company: "", notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [created, setCreated] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiPost("/api/admin/ch6/networks", {
+        network_name: form.network_name.trim(),
+        head_full_name: form.head_full_name.trim(),
+        head_phone: form.head_phone.trim(),
+        head_mpesa_number: (form.head_mpesa_number || form.head_phone).trim(),
+        head_email: form.head_email.trim() || null,
+        insurance_company: form.insurance_company.trim() || null,
+        notes: form.notes.trim() || null,
+      });
+      setCreated(res);
+      onCreated();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const uploadCsv = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const res = await apiUpload(`/api/admin/ch6/bulk-import?network_id=${encodeURIComponent(created.network_id)}`, file);
+      setImportResult(res);
+      onCreated();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const downloadTemplate = async () => {
+    const r = await fetch(`${API_BASE}/api/admin/ch6/csv-template`, { headers: { ...getAuthHeader() }, credentials: "include" });
+    if (!r.ok) { setError(`Template download failed (${r.status})`); return; }
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ch6_agent_import_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 30px rgba(0,0,0,0.25)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: BLUE }}>
+            {created ? "Import Managers & Agents" : "New Insurance Network"}
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#888" }}>{"\u00D7"}</button>
+        </div>
+
+        {error && <div style={{ background: "#fdecec", color: "#c00", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 14 }}>{error}</div>}
+
+        {!created ? (
+          <form onSubmit={submit}>
+            <Field label="Network Name" required value={form.network_name} onChange={set("network_name")} placeholder="e.g. Jubilee Agents Nairobi" />
+            <Field label="Head - Full Name" required value={form.head_full_name} onChange={set("head_full_name")} />
+            <Field label="Head - Phone" required type="tel" value={form.head_phone} onChange={set("head_phone")} placeholder="+2547..." />
+            <Field label="Head - M-Pesa Number" type="tel" value={form.head_mpesa_number} onChange={set("head_mpesa_number")} placeholder="defaults to phone" />
+            <Field label="Head - Email" type="email" value={form.head_email} onChange={set("head_email")} />
+            <Field label="Insurance Company" value={form.insurance_company} onChange={set("insurance_company")} />
+            <Field label="Notes" value={form.notes} onChange={set("notes")} />
+            <button type="submit" disabled={saving} style={{ width: "100%", background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 700, fontSize: 14, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Creating..." : "Create Network"}
+            </button>
+          </form>
+        ) : (
+          <>
+            <div style={{ background: "#eefaf3", color: "#0a7d4d", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 14 }}>
+              Network created. Now import its managers and agents from a CSV file.
+            </div>
+            {importResult && (
+              <div style={{ background: "#f0f4ff", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 14 }}>
+                Imported: <b>{importResult.created?.managers ?? 0}</b> managers, <b>{importResult.created?.agents ?? 0}</b> agents
+                {(importResult.created?.errors ?? 0) > 0 && <span style={{ color: "#c00" }}> — {importResult.created.errors} row(s) failed</span>}
+              </div>
+            )}
+            <button onClick={downloadTemplate} style={{ width: "100%", background: "#fff", color: BLUE, border: `1px solid ${BLUE}`, borderRadius: 8, padding: "10px 0", fontWeight: 600, fontSize: 13, cursor: "pointer", marginBottom: 10 }}>
+              Download CSV template
+            </button>
+            <label style={{ display: "block", width: "100%", background: uploading ? "#7aa5c9" : BLUE, color: "#fff", borderRadius: 8, padding: "11px 0", fontWeight: 700, fontSize: 14, cursor: uploading ? "wait" : "pointer", textAlign: "center", marginBottom: 10 }}>
+              {uploading ? "Importing..." : "Upload CSV"}
+              <input type="file" accept=".csv,text/csv" onChange={uploadCsv} disabled={uploading} style={{ display: "none" }} />
+            </label>
+            <button onClick={onClose} style={{ width: "100%", background: "none", color: "#888", border: "none", padding: "8px 0", fontSize: 13, cursor: "pointer" }}>
+              {importResult ? "Done" : "Skip for now"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function InsuranceNetworkDashboard({ role = "network_head", partnerId, networkId }) {
   const [view, setView] = useState("network");
   const [networks, setNetworks] = useState([]);
@@ -115,6 +274,7 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
   const [agentDetail, setAgentDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchNetworks = useCallback(async () => {
     setNetworks(await apiGet(`/api/admin/ch6/networks`));
@@ -191,10 +351,21 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#f4f6fb", minHeight: "100vh", padding: "24px 28px" }}>
 
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>Insurance Agent Network</div>
-        <div style={{ fontSize: 13, color: "#888" }}>CH6 - Continuous commission tracker</div>
+      <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>Insurance Agent Network</div>
+          <div style={{ fontSize: 13, color: "#888" }}>CH6 - Continuous commission tracker</div>
+        </div>
+        {role === "network_head" && view === "network" && !selectedNetwork && (
+          <button onClick={() => setShowCreate(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            + New Network
+          </button>
+        )}
       </div>
+
+      {showCreate && (
+        <CreateNetworkModal onClose={() => setShowCreate(false)} onCreated={fetchNetworks} />
+      )}
 
       {role === "agent" && agentDetail && (
         <>

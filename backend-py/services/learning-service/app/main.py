@@ -8,6 +8,7 @@ from .routers.ai import router as ai_router
 from .routers.curriculum import router as curriculum_router
 from .routers.exams import router as exams_router
 from .routers.leaderboard import router as lb_router
+from .routers.photoscan import router as photoscan_router
 from .routers.progress import router as progress_router
 
 
@@ -28,7 +29,7 @@ async def _on_shutdown(app):
 
 app = create_app(
     settings,
-    routers=[ai_router, progress_router, lb_router, exams_router, curriculum_router],
+    routers=[ai_router, progress_router, lb_router, exams_router, curriculum_router, photoscan_router],
     on_startup=_on_startup,
     on_shutdown=_on_shutdown,
 )

@@ -51,6 +51,16 @@ Parameters:
   OnDemandWeight:
     Type: Number
     Default: 1
+  PaymentGatewaySecretArn:
+    Type: String
+    Default: ''
+    Description: >
+      ARN of the AWS Secrets Manager secret holding the external payment gateway
+      credentials as a JSON object with keys PAYMENT_GATEWAY_API_KEY and
+      PAYMENT_GATEWAY_API_SECRET. Leave empty to disable gateway integration.
+
+Conditions:
+  HasPaymentGatewaySecret: !Not [!Equals [!Ref PaymentGatewaySecretArn, '']]
 
 Resources:
   # ─── Security groups ─────────────────────────────────────────────────────
@@ -218,6 +228,16 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::${ConfigBucketName}'
                   - !Sub 'arn:aws:s3:::${ConfigBucketName}/*'
+        - !If
+          - HasPaymentGatewaySecret
+          - PolicyName: ReadPaymentGatewaySecret
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: [secretsmanager:GetSecretValue]
+                  Resource: !Ref PaymentGatewaySecretArn
+          - !Ref AWS::NoValue
 
   TaskRole:
     Type: AWS::IAM::Role
@@ -394,6 +414,13 @@ Resources:
           Environment:
             - {Name: SERVICE_NAME, Value: billing-service}
             - {Name: PORT,         Value: '5103'}
+          Secrets: !If
+            - HasPaymentGatewaySecret
+            - - Name: PAYMENT_GATEWAY_API_KEY
+                ValueFrom: !Sub '${PaymentGatewaySecretArn}:PAYMENT_GATEWAY_API_KEY::'
+              - Name: PAYMENT_GATEWAY_API_SECRET
+                ValueFrom: !Sub '${PaymentGatewaySecretArn}:PAYMENT_GATEWAY_API_SECRET::'
+            - !Ref AWS::NoValue
           PortMappings: [{ContainerPort: 5103, Protocol: tcp}]
           LogConfiguration:
             LogDriver: awslogs

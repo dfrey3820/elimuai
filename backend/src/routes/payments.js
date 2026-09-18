@@ -32,6 +32,18 @@ router.get('/subscription-info', async (req, res) => {
 // ─── POST /api/payments/mpesa/initiate ───────────────────────────────────────
 router.post('/mpesa/initiate', authenticate, async (req, res) => {
   const { plan, phone, billing_cycle = 'monthly', coupon_code } = req.body;
+  // Accept camelCase and snake_case aliases for the optional CH6 insurance-agent
+  // referral code. When supplied and valid, we persist it on ``payments.metadata``
+  // so the Python billing webhook can credit the 3-tier network commission on
+  // payment success. This monolith does NOT run the credit itself.
+  const rawAgentCode = (
+    req.body.agent_referral_code
+    || req.body.agentReferralCode
+    || req.body.agentCode
+    || req.body.agent_code
+    || req.body.ref
+    || ''
+  ).toString().trim().toUpperCase();
   const user = req.user;
 
   const validPlans = ['student', 'teacher', 'parent', 'school', 'family', 'enterprise'];
