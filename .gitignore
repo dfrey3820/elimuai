@@ -19,3 +19,9 @@ frontend/out/
 infra/ecs-fargate-py/prod.env
 backups/*.sql
 backups/*.sql.gz
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
