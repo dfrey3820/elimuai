@@ -10,6 +10,7 @@ nginx blocks that path publicly (see gateway/nginx.conf).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
@@ -26,10 +27,18 @@ router = APIRouter(prefix="/internal", tags=["internal"])
 @router.get("/verify")
 async def verify(request: Request, response: Response, session: AsyncSession = Depends(get_session)):
     header = request.headers.get("authorization", "")
-    if not header.lower().startswith("bearer "):
+    token = None
+    if header.lower().startswith("bearer "):
+        token = header.split(" ", 1)[1].strip()
+    else:
+        # Browser downloads (window.open) can't set headers — accept ?token=
+        # from the original URI that nginx forwards (Node parity).
+        orig = request.headers.get("x-original-uri", "")
+        qs = parse_qs(urlsplit(orig).query)
+        token = (qs.get("token") or [None])[0]
+    if not token:
         raise HTTPException(401, "Missing bearer token")
 
-    token = header.split(" ", 1)[1].strip()
     payload = decode_jwt(token, settings.jwt_secret)
     user_id = payload.get("userId") or payload.get("sub")
     jti = payload.get("jti")
