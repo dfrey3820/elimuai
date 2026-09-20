@@ -288,15 +288,23 @@ def _reminder_expiring_html(*, name: str, school_name: str, plan: str, plan_expi
 
 def _reminder_renewal_html(*, name: str, plan: str, plan_expires: str | None,
                            invoice_number: str, amount: str, currency: str,
-                           billing_cycle: str, renew_link: str | None) -> str:
+                           billing_cycle: str, renew_link: str | None,
+                           kind: str = "renewal") -> str:
     when = plan_expires.split("T")[0] if plan_expires else "recently"
     cycle_txt = billing_cycle.replace("_", "-")
     pay_href = renew_link or "https://elimuai.africa/dashboard?tab=Billing"
+    if kind == "trial":
+        heading = "Your ElimuAI free trial has ended"
+        lede = (f"Hi {name}, your free trial ended on <strong>{when}</strong>. "
+                "Subscribe now to keep unlimited AI tutoring, past papers and progress analytics.")
+    else:
+        heading = "Your ElimuAI subscription has expired"
+        lede = (f"Hi {name}, your <strong>{plan.title()}</strong> plan expired on <strong>{when}</strong> "
+                "and AI tutoring, past papers and progress analytics are now paused.")
     return f"""
     <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:24px">
-      <h1 style="color:#EF4444">Your ElimuAI subscription has expired</h1>
-      <p>Hi {name}, your <strong>{plan.title()}</strong> plan expired on <strong>{when}</strong>
-         and AI tutoring, past papers and progress analytics are now paused.</p>
+      <h1 style="color:#EF4444">{heading}</h1>
+      <p>{lede}</p>
       <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:16px;margin:20px 0">
         <p style="margin:0 0 6px;color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:1px">Renewal invoice</p>
         <p style="margin:0;font-size:15px"><strong>{invoice_number}</strong></p>
@@ -406,9 +414,15 @@ async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> Non
     elif topic == "billing.reminder_renewal":
         email = payload.get("email")
         if email:
+            is_trial = payload.get("kind") == "trial"
+            subject = (
+                f"Your free trial has ended — invoice {payload.get('invoice_number')} inside"
+                if is_trial else
+                f"Renewal invoice {payload.get('invoice_number')} — your ElimuAI plan has expired"
+            )
             await send_email(
                 settings, email,
-                f"Renewal invoice {payload.get('invoice_number')} — your ElimuAI plan has expired",
+                subject,
                 _reminder_renewal_html(
                     name=payload.get("name") or "there",
                     plan=payload.get("plan") or "student",
@@ -418,6 +432,7 @@ async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> Non
                     currency=payload.get("currency") or "KES",
                     billing_cycle=payload.get("billing_cycle") or "monthly",
                     renew_link=payload.get("renew_link"),
+                    kind="trial" if is_trial else "renewal",
                 ),
             )
 

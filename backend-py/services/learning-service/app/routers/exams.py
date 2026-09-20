@@ -85,6 +85,7 @@ async def list_papers(
     Country / curriculum / level query params are honoured for extra filtering
     but the primary scope is always ``created_by = caller``.
     """
+    await _require_ai_access(sess, uuid.UUID(principal.user_id))
     rows = (await sess.execute(
         text(
             """
@@ -220,6 +221,7 @@ async def paper_questions(
 
     Callers may only fetch papers they created (or as super_admin).
     """
+    await _require_ai_access(sess, uuid.UUID(principal.user_id))
     row = (await sess.execute(
         text(
             """

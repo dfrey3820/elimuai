@@ -100,6 +100,38 @@ _LAPSED_SQL = text(
     """
 )
 
+# Expired free trials that never converted: send an invoice for the plan
+# matching the user's role. Same 3-sends / 3-day-gap cadence per trial expiry.
+_TRIAL_EXPIRED_SQL = text(
+    """
+    SELECT u.id, u.email, u.name, u.role, u.trial_expires, s.name AS school_name
+    FROM users u
+    LEFT JOIN schools s ON s.id = u.school_id
+    WHERE u.plan = 'free'
+      AND u.role IN ('student', 'parent', 'teacher')
+      AND u.is_active = true
+      AND u.email IS NOT NULL
+      AND u.trial_expires IS NOT NULL
+      AND u.trial_expires < NOW()
+      AND (u.school_id IS NULL OR NOT EXISTS (
+        SELECT 1 FROM schools sc WHERE sc.id = u.school_id
+          AND sc.plan <> 'free' AND sc.plan_expires > NOW()
+      ))
+      AND (
+        SELECT COUNT(*) FROM subscription_reminders r
+        WHERE r.user_id = u.id
+          AND r.kind = 'trial_invoice'
+          AND r.reference = (u.trial_expires)::date
+      ) < :max_sends
+      AND NOT EXISTS (
+        SELECT 1 FROM subscription_reminders r
+        WHERE r.user_id = u.id
+          AND r.kind = 'trial_invoice'
+          AND r.sent_at > NOW() - make_interval(days => :gap_days)
+      )
+    """
+)
+
 
 async def _record_sent(sess, user_id, kind: str, reference=None) -> None:
     await sess.execute(
@@ -165,7 +197,7 @@ async def run_once(app) -> dict[str, int]:
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
-    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0, "trial_invoice": 0}
 
     async for sess in app.state.db.session():
         got_lock = (await sess.execute(
@@ -185,7 +217,7 @@ async def run_once(app) -> dict[str, int]:
 
 
 async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
-    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0, "trial_invoice": 0}
     if True:  # keep original body indentation
         # ── Free-plan admins ─────────────────────────────────────────────
         rows = (await sess.execute(
@@ -266,6 +298,43 @@ async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
                 sess, r["id"], "renewal_invoice", reference=expires_at.date(),
             )
             counts["renewal_invoice"] += 1
+
+        # ── Expired trials that never converted: first invoice ────────────
+        rows = (await sess.execute(
+            _TRIAL_EXPIRED_SQL,
+            {
+                "max_sends": settings.reminders_renewal_max_sends,
+                "gap_days": settings.reminders_renewal_gap_days,
+            },
+        )).mappings().all()
+        for r in rows:
+            plan = r["role"]  # student/parent/teacher plans are keyed by role
+            try:
+                inv = await _renewal_invoice_for(sess, r["id"], plan, r["trial_expires"])
+            except Exception as exc:  # noqa: BLE001
+                log.error("reminders.trial_invoice_failed", user_id=str(r["id"]), error=str(exc))
+                continue
+            expires_at = r["trial_expires"]
+            payload = {
+                "user_id": str(r["id"]),
+                "email": r["email"],
+                "name": r["name"] or "there",
+                "role": r["role"],
+                "plan": plan,
+                "plan_expires": expires_at.isoformat() if expires_at else None,
+                "school_name": r["school_name"],
+                "invoice_number": inv["invoice_number"],
+                "amount": str(inv["amount"]),
+                "currency": inv["currency"],
+                "billing_cycle": inv["billing_cycle"],
+                "renew_link": f"{settings.public_base_url}/api/payments/renew/{make_renew_token(inv['id'])}",
+                "kind": "trial",
+            }
+            await bus.publish("billing.reminder_renewal", payload)
+            await _record_sent(
+                sess, r["id"], "trial_invoice", reference=expires_at.date(),
+            )
+            counts["trial_invoice"] += 1
 
         await sess.commit()
 

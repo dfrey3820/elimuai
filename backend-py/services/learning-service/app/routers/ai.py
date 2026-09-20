@@ -31,18 +31,13 @@ async def _user_ctx(sess: AsyncSession, user_id: uuid.UUID) -> dict:
     return dict(row) if row else {}
 
 
-async def _require_ai_access(sess: AsyncSession, user_id: uuid.UUID) -> None:
-    """Gate AI endpoints on a live subscription check.
+# Free-plan users get this many tutor questions per day; other AI features and
+# past papers require an active plan or trial.
+FREE_TUTOR_DAILY_LIMIT = 3
 
-    Access is granted when any of these are true:
-      * role is admin / super_admin
-      * user's school has a paid, non-expired plan
-      * user has a paid, non-expired personal plan
-      * user is still within their free trial window
 
-    Otherwise raises HTTP 402 Payment Required so the frontend can surface
-    an "activate a plan" prompt.
-    """
+async def _plan_state(sess: AsyncSession, user_id: uuid.UUID) -> str:
+    """Classify the caller's subscription: 'admin' | 'paid' | 'trial' | 'free'."""
     row = (await sess.execute(
         text(
             """
@@ -59,7 +54,7 @@ async def _require_ai_access(sess: AsyncSession, user_id: uuid.UUID) -> None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
 
     if row["role"] in ("admin", "super_admin"):
-        return
+        return "admin"
 
     now = datetime.utcnow()
     school_active = (
@@ -73,15 +68,44 @@ async def _require_ai_access(sess: AsyncSession, user_id: uuid.UUID) -> None:
         and row["plan_expires"] is not None
         and row["plan_expires"] > now
     )
-    trial_active = row["trial_expires"] is not None and row["trial_expires"] > now
+    if school_active or plan_active:
+        return "paid"
+    if row["trial_expires"] is not None and row["trial_expires"] > now:
+        return "trial"
+    return "free"
 
-    if school_active or plan_active or trial_active:
+
+async def _require_ai_access(sess: AsyncSession, user_id: uuid.UUID) -> None:
+    """Gate premium AI endpoints (homework, questions, photoscan, exams).
+
+    Free users are rejected with 402 so the frontend surfaces the upgrade
+    prompt; the tutor endpoint has its own daily-limit gate instead.
+    """
+    if await _plan_state(sess, user_id) == "free":
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            "Your free trial has ended. Activate a plan to keep using AI features.",
+        )
+
+
+async def _require_tutor_quota(sess: AsyncSession, user_id: uuid.UUID) -> None:
+    """Free plan: allow FREE_TUTOR_DAILY_LIMIT tutor questions per day."""
+    if await _plan_state(sess, user_id) != "free":
         return
-
-    raise HTTPException(
-        status.HTTP_402_PAYMENT_REQUIRED,
-        "Your free trial has ended. Activate a plan to keep using AI features.",
-    )
+    used = (await sess.execute(
+        text(
+            "SELECT COALESCE(SUM(jsonb_array_length(messages)), 0) / 2 "
+            "FROM ai_sessions WHERE user_id = :uid AND type = 'tutor' "
+            "AND updated_at >= date_trunc('day', NOW())"
+        ),
+        {"uid": user_id},
+    )).scalar() or 0
+    if used >= FREE_TUTOR_DAILY_LIMIT:
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            f"Free plan includes {FREE_TUTOR_DAILY_LIMIT} tutor questions per day. "
+            "Upgrade to keep learning without limits.",
+        )
 
 
 def _call_claude(client, *, system: str, messages: list[dict], max_tokens: int) -> str:
@@ -110,7 +134,7 @@ async def tutor(
     if client is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "AI not configured")
     user_id = uuid.UUID(principal.user_id)
-    await _require_ai_access(sess, user_id)
+    await _require_tutor_quota(sess, user_id)
     ctx = await _user_ctx(sess, user_id)
     lang = ctx.get("language") or "en"
 

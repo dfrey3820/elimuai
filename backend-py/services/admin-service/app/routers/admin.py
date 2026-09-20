@@ -226,6 +226,35 @@ async def toggle_user_active(
     return {"user": dict(row)}
 
 
+@router.post("/users/{user_id}/send-verification", dependencies=[AdminOnly])
+async def send_verification(
+    user_id: uuid.UUID,
+    body: dict,
+    sess: AsyncSession = Depends(get_session),
+):
+    """Admin-initiated verification: marks email/phone verified (Node parity)."""
+    vtype = (body or {}).get("type", "email")
+    if vtype not in ("email", "phone"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "type must be 'email' or 'phone'")
+    user = (await sess.execute(
+        text("SELECT id, email, phone FROM users WHERE id = :id"),
+        {"id": user_id},
+    )).mappings().first()
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    if vtype == "email" and not user["email"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "User has no email")
+    if vtype == "phone" and not user["phone"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "User has no phone number")
+    field = "email_verified" if vtype == "email" else "phone_verified"
+    await sess.execute(
+        text(f"UPDATE users SET {field} = TRUE, updated_at = NOW() WHERE id = :id"),  # noqa: S608 — field is whitelisted above
+        {"id": user_id},
+    )
+    await sess.commit()
+    return {"message": f"{'Email' if vtype == 'email' else 'Phone'} marked as verified"}
+
+
 @router.post("/users/{user_id}/reset-password", dependencies=[AdminOnly])
 async def reset_user_password(
     user_id: uuid.UUID,
