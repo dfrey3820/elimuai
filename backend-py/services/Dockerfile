@@ -25,7 +25,8 @@ WORKDIR ${SERVICE_DIR}
 
 # ─── Install shared lib first (rarely changes) ──────────────────────────────
 COPY libs/elimu_common /opt/libs/elimu_common
-RUN pip install --upgrade pip && pip install /opt/libs/elimu_common
+# setuptools pinned ≥83 — base image ships 70.3.0 (CVE-2025-47273, CVE-2026-59890)
+RUN pip install --upgrade pip "setuptools>=83" && pip install /opt/libs/elimu_common
 
 # ─── Install the specific service ───────────────────────────────────────────
 COPY services/${SERVICE}/pyproject.toml ./pyproject.toml

@@ -10,8 +10,9 @@ COPY frontend/ ./
 RUN npm run build
 
 # ─── Stage 2: nginx that serves both the static frontend and the /api proxy ─
-FROM nginx:1.27-alpine
-RUN apk add --no-cache curl
+FROM nginx:1.29-alpine
+# apk upgrade pulls Alpine security fixes (openssl/curl/libxml2/libpng/expat)
+RUN apk upgrade --no-cache && apk add --no-cache curl
 COPY backend-py/gateway/nginx.prod.conf /etc/nginx/nginx.conf
 COPY --from=frontend-build /app/out /usr/share/nginx/html
 EXPOSE 8091
