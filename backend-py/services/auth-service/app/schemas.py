@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field
 
 
 # Response models that must serialize with camelCase field names to stay
@@ -92,7 +92,7 @@ class TokenPairOut(_CamelOut):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: str
+    refresh_token: str = Field(validation_alias=AliasChoices("refresh_token", "refreshToken"))
 
 
 class RefreshOut(_CamelOut):
