@@ -5,6 +5,7 @@ Ports the semantics of backend/src/routes/auth.js.
 """
 from __future__ import annotations
 
+import uuid as uuid_mod
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -354,6 +355,47 @@ async def me(
     if user is None:
         raise HTTPException(404, "User not found")
     return {"user": UserOut.model_validate(user)}
+
+
+# ─── POST /impersonate/{user_id} ─────────────────────────────────────────────
+
+@router.post("/impersonate/{target_id}")
+async def impersonate(
+    target_id: uuid_mod.UUID,
+    request: Request,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    """super_admin only: issue a token pair for another (non-super_admin) user.
+
+    The admin's own session stays valid; the frontend stores it and restores
+    it when impersonation ends. Every use is logged.
+    """
+    if principal.role != "super_admin":
+        raise HTTPException(403, "Only super admins can impersonate users")
+    if str(target_id) == principal.user_id:
+        raise HTTPException(400, "Cannot impersonate yourself")
+    target = await session.scalar(select(User).where(User.id == target_id))
+    if target is None:
+        raise HTTPException(404, "User not found")
+    if target.role == "super_admin":
+        raise HTTPException(403, "Cannot impersonate another super admin")
+    if not target.is_active:
+        raise HTTPException(400, "Cannot impersonate a deactivated user")
+
+    access, refresh = await _issue_tokens_and_session(session, target, request)
+    log.warning(
+        "auth.impersonation",
+        admin_id=principal.user_id,
+        target_id=str(target.id),
+        target_role=target.role,
+        ip=(request.client.host if request.client else None),
+    )
+    return TokenPairOut(
+        user=UserOut.model_validate(target),
+        access_token=access,
+        refresh_token=refresh,
+    ).model_dump(by_alias=True, mode="json")
 
 
 # ─── GET /sessions ───────────────────────────────────────────────────────────

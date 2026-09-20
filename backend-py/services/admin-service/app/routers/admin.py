@@ -5,9 +5,10 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..deps import AdminOnly, get_session
+from ..deps import AdminOnly, get_principal, get_session
 from ..schemas import DashboardOut, PasswordResetIn, SettingsUpdate, UserListOut, UserRoleIn
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -253,6 +254,134 @@ async def send_verification(
     )
     await sess.commit()
     return {"message": f"{'Email' if vtype == 'email' else 'Phone'} marked as verified"}
+
+
+VALID_PLANS = ("free", "student", "family", "school", "enterprise", "teacher", "parent")
+VALID_ROLES = ("student", "teacher", "parent", "admin", "super_admin")
+
+
+@router.post("/users", status_code=status.HTTP_201_CREATED, dependencies=[AdminOnly])
+async def create_user(
+    body: dict,
+    principal=Depends(get_principal),
+    sess: AsyncSession = Depends(get_session),
+):
+    name, email, password = body.get("name"), body.get("email"), body.get("password")
+    if not name or not email or not password:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name, email and password are required")
+    if len(password) < 8:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Password must be at least 8 characters")
+    role = body.get("role") if body.get("role") in VALID_ROLES else "student"
+    if role in ("admin", "super_admin") and principal.role != "super_admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only super admins can create admin users")
+
+    exists = (await sess.execute(
+        text("SELECT 1 FROM users WHERE email = :e"), {"e": email},
+    )).scalar()
+    if exists:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
+
+    import bcrypt
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
+    row = (await sess.execute(
+        text(
+            "INSERT INTO users (name, email, phone, password_hash, role, country, grade_level, is_active, email_verified) "
+            "VALUES (:n, :e, :p, :h, :r, :c, :g, true, true) "
+            "RETURNING id, name, email, phone, role, is_active, created_at"
+        ),
+        {"n": name, "e": email, "p": body.get("phone"), "h": pw_hash,
+         "r": role, "c": body.get("country") or "KE", "g": body.get("grade_level")},
+    )).mappings().first()
+    await sess.commit()
+    return {"user": dict(row)}
+
+
+@router.put("/users/{user_id}/subscription", dependencies=[AdminOnly])
+async def update_subscription(
+    user_id: uuid.UUID,
+    body: dict,
+    sess: AsyncSession = Depends(get_session),
+):
+    plan = body.get("plan")
+    if plan not in VALID_PLANS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid plan (valid: {', '.join(VALID_PLANS)})")
+    days = int(body.get("days") or 30)
+    # asyncpg can't reuse one param as both plan_type and text — branch instead.
+    expires_expr = "NULL" if plan == "free" else "NOW() + make_interval(days => :d)"
+    params = {"p": plan, "id": user_id} | ({} if plan == "free" else {"d": days})
+    row = (await sess.execute(
+        text(
+            f"UPDATE users SET plan = :p, plan_expires = {expires_expr}, "  # noqa: S608 — expr is a fixed literal
+            "updated_at = NOW() WHERE id = :id RETURNING id, name, plan, plan_expires"
+        ),
+        params,
+    )).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    await sess.commit()
+    return {"user": dict(row), "message": f"Subscription updated to {plan}"}
+
+
+@router.delete("/users/{user_id}/subscription", dependencies=[AdminOnly])
+async def cancel_subscription(
+    user_id: uuid.UUID,
+    sess: AsyncSession = Depends(get_session),
+):
+    row = (await sess.execute(
+        text("UPDATE users SET plan = 'free', plan_expires = NULL, updated_at = NOW() "
+             "WHERE id = :id RETURNING id, name, plan"),
+        {"id": user_id},
+    )).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    await sess.commit()
+    return {"user": dict(row), "message": "Subscription cancelled"}
+
+
+@router.put("/users/{user_id}/2fa", dependencies=[AdminOnly])
+async def toggle_2fa(
+    user_id: uuid.UUID,
+    body: dict,
+    sess: AsyncSession = Depends(get_session),
+):
+    enabled = bool((body or {}).get("enabled"))
+    row = (await sess.execute(
+        text("UPDATE users SET email_verified = :v, updated_at = NOW() "
+             "WHERE id = :id RETURNING id, name, email_verified"),
+        {"v": enabled, "id": user_id},
+    )).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    await sess.commit()
+    return {"message": f"2FA {'enabled' if enabled else 'disabled'}", "user": dict(row)}
+
+
+@router.put("/users/{user_id}/reset-credentials", dependencies=[AdminOnly])
+async def reset_credentials(
+    user_id: uuid.UUID,
+    body: dict,
+    sess: AsyncSession = Depends(get_session),
+):
+    sets, params = [], {"id": user_id}
+    if "email" in body:
+        sets.append("email = :e"); params["e"] = body.get("email") or None
+    if "phone" in body:
+        sets.append("phone = :p"); params["p"] = body.get("phone") or None
+    if not sets:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
+    try:
+        row = (await sess.execute(
+            text(f"UPDATE users SET {', '.join(sets)}, updated_at = NOW() "  # noqa: S608 — sets built from whitelist
+                 "WHERE id = :id RETURNING id, name, email, phone"),
+            params,
+        )).mappings().first()
+        if not row:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        await sess.commit()
+    except IntegrityError:
+        await sess.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "Email or phone already in use")
+    return {"user": dict(row), "message": "Credentials updated"}
 
 
 @router.post("/users/{user_id}/reset-password", dependencies=[AdminOnly])
