@@ -35,6 +35,10 @@ RUN pip install .
 COPY services/${SERVICE}/app ./app
 COPY services/${SERVICE}/tests ./tests
 
+# pip unneeded at runtime; its vendored SBOM (pip/_vendor/bom.cdx.json) ships
+# old setuptools/msgpack copies that trip the CI CVE gate.
+RUN python -m pip uninstall -y pip
+
 # Notifications-service is a worker, not an HTTP server, so its Dockerfile CMD
 # is overridden in docker-compose. Default for HTTP services:
 ENV PORT=8000
