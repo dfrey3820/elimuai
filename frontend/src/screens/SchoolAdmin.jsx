@@ -112,7 +112,7 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
   const [showCreateUser, setShowCreateUser] = useState(false); const [createUserForm, setCreateUserForm] = useState({ name: "", email: "", phone: "", password: "", role: "student", country: "KE", grade_level: "" }); const [createUserMsg, setCreateUserMsg] = useState(""); const [createUserSaving, setCreateUserSaving] = useState(false);
   const [viewUserLoading, setViewUserLoading] = useState(false); const [viewUserData, setViewUserData] = useState(null); const [userDetailTab, setUserDetailTab] = useState("overview");
   const [adminActionMsg, setAdminActionMsg] = useState(""); const [adminActionLoading, setAdminActionLoading] = useState(false);
-  const [upgradeForm, setUpgradeForm] = useState({ plan: "basic", days: "30" }); const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeForm, setUpgradeForm] = useState({ plan: "student", days: "30" }); const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [credForm, setCredForm] = useState({ email: "", phone: "" }); const [showCredModal, setShowCredModal] = useState(false);
   const adminAction = async (url, method, body, successMsg) => {
     setAdminActionLoading(true); setAdminActionMsg("");
