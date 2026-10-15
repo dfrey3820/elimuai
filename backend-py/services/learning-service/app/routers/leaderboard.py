@@ -93,7 +93,7 @@ async def leaderboard(
     q = text(
         f"""
         SELECT
-          le.rank, le.xp, le.streak, le.tests_taken, le.avg_score,
+          le.`rank` AS `rank`, le.xp, le.streak, le.tests_taken, le.avg_score,
           u.id, u.name, u.avatar_url, u.country, u.grade_level, u.school_id,
           s.name AS school_name,
           CASE WHEN u.id = :uid THEN TRUE ELSE FALSE END AS is_current_user
@@ -112,7 +112,7 @@ async def leaderboard(
     if user_id:
         rank_row = (await sess.execute(
             text(
-                "SELECT rank, xp, streak FROM leaderboard_entries le "
+                "SELECT `rank`, xp, streak FROM leaderboard_entries le "
                 "JOIN users u ON u.id = le.user_id "
                 "WHERE le.user_id = :uid AND le.scope = :sc "
                 "AND le.period = :p AND le.period_key = :pk "
@@ -146,7 +146,7 @@ async def my_ranks(
         for scope in ("global", "country", "school"):
             row = (await sess.execute(
                 text(
-                    "SELECT rank, xp, streak, tests_taken, avg_score FROM leaderboard_entries "
+                    "SELECT `rank`, xp, streak, tests_taken, avg_score FROM leaderboard_entries "
                     "WHERE user_id = :uid AND scope = :sc AND period = :p AND period_key = :pk"
                 ),
                 {"uid": uid, "sc": scope, "p": period, "pk": pk},

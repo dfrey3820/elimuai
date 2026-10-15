@@ -1,0 +1,130 @@
+name: Deploy cPanel (prod)
+
+# Branch cpanel-mysql → shared-hosting deployment:
+#   frontend (Next.js static export) → ~/public_html
+#   backend  (FastAPI monolith)      → ~/elimuai-api  (Passenger app root)
+#
+# Required repo secrets:
+#   CPANEL_HOST       e.g. server123.webhost.com
+#   CPANEL_PORT       SSH port (22 unless your host says otherwise, e.g. 21098)
+#   CPANEL_USER       cPanel username
+#   CPANEL_SSH_KEY    private key added under cPanel → SSH Access
+#   CPANEL_PIP        absolute path to the venv pip of the Python app,
+#                     e.g. /home/USER/virtualenv/elimuai-api/3.11/bin/pip
+# Optional repo variables:
+#   API_BASE_URL      default https://api.elimuai.africa
+#   CPANEL_API_DIR    default ~/elimuai-api
+#   CPANEL_WWW_DIR    default ~/public_html
+
+on:
+  push:
+    branches: [cpanel-mysql]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpanel-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Monolith import smoke test
+        working-directory: backend-py
+        env:
+          DATABASE_URL: mysql+aiomysql://ci:ci@localhost/ci
+          JWT_SECRET: ci-only-0123456789abcdef0123456789abcdef
+          TRUST_GATEWAY_HEADERS: "false"
+        run: |
+          pip install -q -r monolith/requirements.txt
+          python - <<'EOF'
+          from starlette.testclient import TestClient
+          from monolith.app import app
+          c = TestClient(app, raise_server_exceptions=False)
+          # Routers mounted?
+          assert c.get("/api/auth/login").status_code == 405
+          assert c.get("/api/admin/dashboard").status_code == 401
+          # Identity-header spoofing must be rejected (no gateway on cPanel).
+          r = c.get("/api/admin/dashboard",
+                    headers={"X-User-Id": "x", "X-User-Role": "super_admin"})
+          assert r.status_code == 401, r.status_code
+          print("monolith OK")
+          EOF
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: cpanel-prod
+    env:
+      API_DIR: ${{ vars.CPANEL_API_DIR || '~/elimuai-api' }}
+      WWW_DIR: ${{ vars.CPANEL_WWW_DIR || '~/public_html' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build frontend (static export)
+        env:
+          NEXT_PUBLIC_API_BASE_URL: ${{ vars.API_BASE_URL || 'https://api.elimuai.africa' }}
+        run: |
+          npm ci
+          npm run build --workspace=frontend
+          cp deploy/cpanel/htaccess-frontend frontend/out/.htaccess
+
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.CPANEL_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "${{ secrets.CPANEL_PORT }}" -H "${{ secrets.CPANEL_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          cat > ~/.ssh/config <<EOF
+          Host cpanel
+            HostName ${{ secrets.CPANEL_HOST }}
+            Port ${{ secrets.CPANEL_PORT }}
+            User ${{ secrets.CPANEL_USER }}
+            IdentityFile ~/.ssh/id_deploy
+            StrictHostKeyChecking accept-new
+          EOF
+
+      - name: Rsync backend
+        run: |
+          rsync -az --delete \
+            --exclude '__pycache__' --exclude '*.pyc' --exclude '.env' \
+            --exclude 'build/' --exclude 'tests/' --exclude '.pytest_cache' \
+            --exclude 'gateway/' --exclude 'services/mpesa-service/' \
+            --exclude 'docker-compose.yml' \
+            backend-py/ cpanel:$API_DIR/
+
+      - name: Rsync frontend
+        run: |
+          rsync -az --delete \
+            --exclude '.htaccess-keep' --exclude '.well-known' --exclude 'cgi-bin' \
+            frontend/out/ cpanel:$WWW_DIR/
+
+      - name: Install deps + restart Passenger
+        run: |
+          ssh cpanel "
+            set -e
+            cd $API_DIR
+            ${{ secrets.CPANEL_PIP }} install -q -r monolith/requirements.txt
+            mkdir -p tmp && touch tmp/restart.txt
+          "
+
+      - name: Smoke check
+        run: |
+          sleep 5
+          code=$(curl -s -o /dev/null -w '%{http_code}' "${{ vars.API_BASE_URL || 'https://api.elimuai.africa' }}/health" || true)
+          echo "API /health -> $code"
+          test "$code" = "200"
