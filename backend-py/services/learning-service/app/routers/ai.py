@@ -94,9 +94,9 @@ async def _require_tutor_quota(sess: AsyncSession, user_id: uuid.UUID) -> None:
         return
     used = (await sess.execute(
         text(
-            "SELECT COALESCE(SUM(jsonb_array_length(messages)), 0) / 2 "
+            "SELECT COALESCE(SUM(JSON_LENGTH(messages)), 0) / 2 "
             "FROM ai_sessions WHERE user_id = :uid AND type = 'tutor' "
-            "AND updated_at >= date_trunc('day', NOW())"
+            "AND updated_at >= CURDATE()"
         ),
         {"uid": user_id},
     )).scalar() or 0
@@ -156,7 +156,7 @@ async def tutor(
     if body.session_id:
         await sess.execute(
             text(
-                "UPDATE ai_sessions SET messages = messages || CAST(:m AS jsonb), updated_at = NOW() "
+                "UPDATE ai_sessions SET messages = JSON_MERGE_PRESERVE(messages, CAST(:m AS JSON)), updated_at = NOW() "
                 "WHERE id = :sid AND user_id = :uid"
             ),
             {"m": new_messages_json, "sid": body.session_id, "uid": user_id},
@@ -166,7 +166,7 @@ async def tutor(
         await sess.execute(
             text(
                 "INSERT INTO ai_sessions (user_id, type, language, messages) "
-                "VALUES (:uid, 'tutor', :lang, CAST(:m AS jsonb))"
+                "VALUES (:uid, 'tutor', :lang, CAST(:m AS JSON))"
             ),
             {"uid": user_id, "lang": lang, "m": full},
         )

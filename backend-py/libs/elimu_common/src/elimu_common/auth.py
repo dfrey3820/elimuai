@@ -10,6 +10,7 @@ fallback. When called from tests without a gateway, (1) is used.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -61,13 +62,18 @@ def _extract_bearer(request: Request) -> str | None:
 def make_principal_dependency(secret: str):
     """Factory: returns a FastAPI dependency that produces a Principal."""
 
+    # Only trust gateway-injected identity headers when an upstream proxy is
+    # guaranteed to strip them from client requests (nginx gateway on AWS).
+    # On cPanel/Passenger there is no such proxy, so this MUST stay false.
+    trust_gateway = os.getenv("TRUST_GATEWAY_HEADERS", "false").lower() in ("1", "true", "yes")
+
     async def get_principal(
         request: Request,
         x_user_id: str | None = Header(default=None),
         x_user_role: str | None = Header(default=None),
     ) -> Principal:
-        # Trust gateway-injected headers when present.
-        if x_user_id:
+        # Trust gateway-injected headers only when explicitly enabled.
+        if trust_gateway and x_user_id:
             return Principal(user_id=x_user_id, role=x_user_role)
 
         # Fallback: verify JWT ourselves.

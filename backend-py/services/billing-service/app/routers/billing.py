@@ -283,7 +283,7 @@ async def mpesa_initiate(
         await sess.execute(
             text(
                 "UPDATE payments SET status = 'failed', "
-                "metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:m AS jsonb) WHERE id = :id"
+                "metadata = JSON_MERGE_PATCH(COALESCE(metadata, '{}'), :m) WHERE id = :id"
             ),
             {
                 "id": payment.id,
@@ -320,7 +320,7 @@ async def mpesa_initiate(
             await sess.execute(
                 text(
                     "UPDATE payments SET status = 'failed', "
-                    "metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:m AS jsonb) WHERE id = :id"
+                    "metadata = JSON_MERGE_PATCH(COALESCE(metadata, '{}'), :m) WHERE id = :id"
                 ),
                 {
                     "id": payment.id,
@@ -618,37 +618,41 @@ async def create_coupon_admin(
     if body.type == "percentage" and not (0 <= body.value <= 100):
         raise HTTPException(400, "Percentage must be between 0 and 100")
     try:
-        row = (await sess.execute(text(
+        new_id = str(uuid.uuid4())
+        await sess.execute(text(
             """
             INSERT INTO coupons
-              (code, description, type, value, min_amount, max_discount,
+              (id, code, description, type, value, min_amount, max_discount,
                applicable_plans, applicable_cycles, max_uses, max_uses_per_user,
                starts_at, expires_at, created_by)
             VALUES
-              (UPPER(:code), :description, :type, :value, :min_amount, :max_discount,
-               :applicable_plans, :applicable_cycles, :max_uses, :max_uses_per_user,
+              (:id, UPPER(:code), :description, :type, :value, :min_amount, :max_discount,
+               CAST(:applicable_plans AS JSON), CAST(:applicable_cycles AS JSON), :max_uses, :max_uses_per_user,
                :starts_at, :expires_at, :created_by)
-            RETURNING *
             """
         ), {
+            "id": new_id,
             "code": body.code.strip(),
             "description": body.description,
             "type": body.type,
             "value": body.value,
             "min_amount": body.min_amount or 0,
             "max_discount": body.max_discount,
-            "applicable_plans": body.applicable_plans or [],
-            "applicable_cycles": body.applicable_cycles or [],
+            "applicable_plans": json.dumps(body.applicable_plans or []),
+            "applicable_cycles": json.dumps(body.applicable_cycles or []),
             "max_uses": body.max_uses,
             "max_uses_per_user": body.max_uses_per_user or 1,
             "starts_at": body.starts_at,
             "expires_at": body.expires_at,
             "created_by": uuid.UUID(principal.user_id),
-        })).mappings().first()
+        })
+        row = (await sess.execute(
+            text("SELECT * FROM coupons WHERE id = :id"), {"id": new_id}
+        )).mappings().first()
         await sess.commit()
     except Exception as exc:  # noqa: BLE001
         await sess.rollback()
-        if "23505" in str(exc) or "duplicate key" in str(exc).lower():
+        if "23505" in str(exc) or "duplicate" in str(exc).lower():
             raise HTTPException(409, "Coupon code already exists") from exc
         raise HTTPException(500, "Failed to create coupon") from exc
     return {"coupon": dict(row) if row else None}
@@ -660,7 +664,7 @@ async def update_coupon_admin(
     body: _CouponUpdate,
     sess: AsyncSession = Depends(get_session),
 ):
-    row = (await sess.execute(text(
+    await sess.execute(text(
         """
         UPDATE coupons SET
           description       = COALESCE(:description, description),
@@ -668,14 +672,14 @@ async def update_coupon_admin(
           value             = COALESCE(:value, value),
           min_amount        = COALESCE(:min_amount, min_amount),
           max_discount      = :max_discount,
-          applicable_plans  = COALESCE(:applicable_plans, applicable_plans),
-          applicable_cycles = COALESCE(:applicable_cycles, applicable_cycles),
+          applicable_plans  = COALESCE(CAST(:applicable_plans AS JSON), applicable_plans),
+          applicable_cycles = COALESCE(CAST(:applicable_cycles AS JSON), applicable_cycles),
           max_uses          = :max_uses,
           max_uses_per_user = COALESCE(:max_uses_per_user, max_uses_per_user),
           is_active         = COALESCE(:is_active, is_active),
           starts_at         = :starts_at,
           expires_at        = :expires_at
-        WHERE id = :id RETURNING *
+        WHERE id = :id
         """
     ), {
         "id": coupon_id,
@@ -684,14 +688,17 @@ async def update_coupon_admin(
         "value": body.value,
         "min_amount": body.min_amount,
         "max_discount": body.max_discount,
-        "applicable_plans": body.applicable_plans,
-        "applicable_cycles": body.applicable_cycles,
+        "applicable_plans": json.dumps(body.applicable_plans) if body.applicable_plans is not None else None,
+        "applicable_cycles": json.dumps(body.applicable_cycles) if body.applicable_cycles is not None else None,
         "max_uses": body.max_uses,
         "max_uses_per_user": body.max_uses_per_user,
         "is_active": body.is_active,
         "starts_at": body.starts_at,
         "expires_at": body.expires_at,
-    })).mappings().first()
+    })
+    row = (await sess.execute(
+        text("SELECT * FROM coupons WHERE id = :id"), {"id": coupon_id}
+    )).mappings().first()
     if not row:
         raise HTTPException(404, "Coupon not found")
     await sess.commit()
@@ -703,11 +710,11 @@ async def delete_coupon_admin(
     coupon_id: uuid.UUID,
     sess: AsyncSession = Depends(get_session),
 ):
-    row = (await sess.execute(
-        text("DELETE FROM coupons WHERE id = :id RETURNING id, code"),
+    res = await sess.execute(
+        text("DELETE FROM coupons WHERE id = :id"),
         {"id": coupon_id},
-    )).mappings().first()
-    if not row:
+    )
+    if res.rowcount == 0:
         raise HTTPException(404, "Coupon not found")
     await sess.commit()
     return {"success": True}

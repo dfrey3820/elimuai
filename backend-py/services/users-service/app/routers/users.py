@@ -135,7 +135,7 @@ async def get_summary(
               (SELECT COUNT(*) FROM ai_sessions WHERE user_id = :uid) AS ai_sessions,
               (SELECT COUNT(*) FROM exam_attempts WHERE user_id = :uid AND completed = TRUE) AS exams,
               (SELECT COALESCE(SUM(xp_earned),0) FROM progress_logs
-                 WHERE user_id = :uid AND logged_date >= NOW() - INTERVAL '7 days') AS week_xp
+                 WHERE user_id = :uid AND logged_date >= NOW() - INTERVAL 7 DAY) AS week_xp
             """
         ),
         {"uid": user.id},

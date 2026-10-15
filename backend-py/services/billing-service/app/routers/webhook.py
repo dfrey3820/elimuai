@@ -289,7 +289,7 @@ async def finalise_payment(
                 """
                 UPDATE payments
                    SET status = 'failed',
-                       metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:meta AS jsonb)
+                       metadata = JSON_MERGE_PATCH(COALESCE(metadata, '{}'), :meta)
                  WHERE id = :id
                 """
             ),
@@ -323,7 +323,7 @@ async def finalise_payment(
                SET status = 'completed',
                    mpesa_receipt = COALESCE(:receipt, mpesa_receipt),
                    completed_at = NOW(),
-                   metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:meta AS jsonb)
+                   metadata = JSON_MERGE_PATCH(COALESCE(metadata, '{}'), :meta)
              WHERE id = :id
             """
         ),

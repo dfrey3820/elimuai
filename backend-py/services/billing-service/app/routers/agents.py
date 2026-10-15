@@ -206,14 +206,13 @@ async def agent_onboard_customer(
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with that email already exists")
 
-    row = (await sess.execute(text(
+    new_user_id = str(uuid.uuid4())
+    await sess.execute(text(
         """
-        INSERT INTO users (name, email, phone, role, country, onboarded)
-        VALUES (:n, :e, :p, CAST(:r AS user_role), CAST(:c AS country_code), false)
-        RETURNING id
+        INSERT INTO users (id, name, email, phone, role, country, onboarded)
+        VALUES (:id, :n, :e, :p, :r, :c, false)
         """
-    ), {"n": body.name, "e": body.email, "p": body.phone, "r": body.role, "c": body.country})).mappings().first()
-    new_user_id = row["id"]
+    ), {"id": new_user_id, "n": body.name, "e": body.email, "p": body.phone, "r": body.role, "c": body.country})
 
     await sess.execute(text(
         """
@@ -251,7 +250,7 @@ async def list_agents(
         q.append("AND ma.is_active = :act")
         params["act"] = is_active
     if search:
-        q.append("AND (u.email ILIKE :s OR u.name ILIKE :s OR ma.agent_code ILIKE :s)")
+        q.append("AND (u.email LIKE :s OR u.name LIKE :s OR ma.agent_code LIKE :s)")
         params["s"] = f"%{search}%"
     q.append("ORDER BY ma.created_at DESC LIMIT :lim")
     rows = (await sess.execute(text(" ".join(q)), params)).mappings().all()
@@ -297,26 +296,30 @@ async def create_agent(body: AgentCreateIn, sess: AsyncSession = Depends(get_ses
     else:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Could not generate unique agent code")
 
-    row = (await sess.execute(text(
+    new_agent_id = str(uuid.uuid4())
+    await sess.execute(text(
         """
         INSERT INTO marketing_agents
-          (user_id, agent_code, commission_rate, payout_method, payout_details, notes)
-        VALUES (:u, :c, :r, :pm, CAST(:pd AS jsonb), :n)
-        RETURNING *
+          (id, user_id, agent_code, commission_rate, payout_method, payout_details, notes)
+        VALUES (:id, :u, :c, :r, :pm, CAST(:pd AS JSON), :n)
         """
     ), {
+        "id": new_agent_id,
         "u": user_row["id"],
         "c": code,
         "r": body.commission_rate,
         "pm": body.payout_method,
         "pd": _dumps(body.payout_details or {}),
         "n": body.notes,
-    })).mappings().first()
+    })
+    row = (await sess.execute(
+        text("SELECT * FROM marketing_agents WHERE id = :id"), {"id": new_agent_id}
+    )).mappings().first()
 
     # Promote the user's role to marketing_agent (unless they're already admin+)
     if user_row["role"] not in ("admin", "super_admin", "marketing_agent"):
         await sess.execute(text(
-            "UPDATE users SET role = CAST('marketing_agent' AS user_role) WHERE id = :u"
+            "UPDATE users SET role = 'marketing_agent' WHERE id = :u"
         ), {"u": user_row["id"]})
 
     await sess.commit()
@@ -340,11 +343,14 @@ async def update_agent(agent_id: uuid.UUID, body: AgentUpdateIn, sess: AsyncSess
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
 
     set_clause = ", ".join(
-        f"{k} = CAST(:{k} AS jsonb)" if k == "payout_details" else f"{k} = :{k}"
+        f"{k} = CAST(:{k} AS JSON)" if k == "payout_details" else f"{k} = :{k}"
         for k in updates
     )
-    q = f"UPDATE marketing_agents SET {set_clause}, updated_at = NOW() WHERE id = :id RETURNING *"
-    row = (await sess.execute(text(q), {**updates, "id": agent_id})).mappings().first()
+    q = f"UPDATE marketing_agents SET {set_clause}, updated_at = NOW() WHERE id = :id"
+    await sess.execute(text(q), {**updates, "id": agent_id})
+    row = (await sess.execute(
+        text("SELECT * FROM marketing_agents WHERE id = :id"), {"id": agent_id}
+    )).mappings().first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
     await sess.commit()
@@ -401,7 +407,7 @@ async def mark_commission_paid(
     principal=current_principal,
     sess: AsyncSession = Depends(get_session),
 ):
-    row = (await sess.execute(text(
+    upd = await sess.execute(text(
         """
         UPDATE agent_commissions
            SET status = 'paid',
@@ -410,12 +416,14 @@ async def mark_commission_paid(
                payout_reference = :ref,
                notes = COALESCE(:notes, notes)
          WHERE id = :id AND status = 'pending'
-         RETURNING *
         """
     ), {"id": commission_id, "who": uuid.UUID(principal.user_id),
-        "ref": body.payout_reference, "notes": body.notes})).mappings().first()
-    if not row:
+        "ref": body.payout_reference, "notes": body.notes})
+    if upd.rowcount == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Commission not found or already paid")
+    row = (await sess.execute(
+        text("SELECT * FROM agent_commissions WHERE id = :id"), {"id": commission_id}
+    )).mappings().first()
     await sess.commit()
     return {"commission": dict(row)}
 
@@ -426,17 +434,19 @@ async def void_commission(
     body: CommissionPayIn,
     sess: AsyncSession = Depends(get_session),
 ):
-    row = (await sess.execute(text(
+    upd = await sess.execute(text(
         """
         UPDATE agent_commissions
            SET status = 'void',
                notes = COALESCE(:notes, notes)
          WHERE id = :id AND status = 'pending'
-         RETURNING *
         """
-    ), {"id": commission_id, "notes": body.notes})).mappings().first()
-    if not row:
+    ), {"id": commission_id, "notes": body.notes})
+    if upd.rowcount == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Commission not found or not pending")
+    row = (await sess.execute(
+        text("SELECT * FROM agent_commissions WHERE id = :id"), {"id": commission_id}
+    )).mappings().first()
     await sess.commit()
     return {"commission": dict(row)}
 

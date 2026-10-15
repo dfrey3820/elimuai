@@ -94,9 +94,9 @@ async def list_papers(
             LEFT JOIN subjects s ON s.id = pp.subject_id
             WHERE pp.is_active = TRUE
               AND pp.created_by = :uid
-              AND (CAST(:c AS text) IS NULL OR pp.country = CAST(:c AS country_code))
-              AND (CAST(:cu AS text) IS NULL OR pp.curriculum = :cu)
-              AND (CAST(:l AS text) IS NULL OR pp.grade_level = :l)
+              AND (CAST(:c AS CHAR) IS NULL OR pp.country = :c)
+              AND (CAST(:cu AS CHAR) IS NULL OR pp.curriculum = :cu)
+              AND (CAST(:l AS CHAR) IS NULL OR pp.grade_level = :l)
             ORDER BY pp.created_at DESC
             LIMIT 50
             """
@@ -176,18 +176,19 @@ async def generate_paper(
 
     title = f"{subject_name} {year} — AI Practice"
 
-    row = (await sess.execute(
+    new_id = str(uuid.uuid4())
+    await sess.execute(
         text(
             """
             INSERT INTO past_papers
-              (title, subject_id, country, curriculum, grade_level, year,
+              (id, title, subject_id, country, curriculum, grade_level, year,
                is_active, school_id, created_by, questions, ai_generated)
-            VALUES (:title, :sub, CAST(:c AS country_code), :cu, :lvl, :yr,
-                    TRUE, NULL, :uid, CAST(:q AS jsonb), TRUE)
-            RETURNING id, title, subject_id, country, curriculum, grade_level, year, created_at
+            VALUES (:id, :title, :sub, :c, :cu, :lvl, :yr,
+                    TRUE, NULL, :uid, CAST(:q AS JSON), TRUE)
             """
         ),
         {
+            "id": new_id,
             "title": title,
             "sub": subject["id"],
             "c": country,
@@ -197,6 +198,11 @@ async def generate_paper(
             "uid": user_id,
             "q": json.dumps(questions),
         },
+    )
+    row = (await sess.execute(
+        text("SELECT id, title, subject_id, country, curriculum, grade_level, year, created_at "
+             "FROM past_papers WHERE id = :id"),
+        {"id": new_id},
     )).mappings().first()
     await sess.commit()
 
@@ -264,17 +270,18 @@ async def create_attempt(
     pct = round((body.score / total) * 100) if total > 0 else 0
     xp = 50 if pct >= 100 else 20 if pct >= 70 else 10
 
-    row = (await sess.execute(
+    new_id = str(uuid.uuid4())
+    await sess.execute(
         text(
             """
             INSERT INTO exam_attempts
-              (user_id, past_paper_id, questions, answers, score, total, percentage,
+              (id, user_id, past_paper_id, questions, answers, score, total, percentage,
                time_taken_secs, completed, xp_earned, completed_at)
-            VALUES (:uid, :pid, CAST(:q AS jsonb), CAST(:a AS jsonb), :s, :t, :pct, :tt, TRUE, :xp, NOW())
-            RETURNING id
+            VALUES (:id, :uid, :pid, CAST(:q AS JSON), CAST(:a AS JSON), :s, :t, :pct, :tt, TRUE, :xp, NOW())
             """
         ),
         {
+            "id": new_id,
             "uid": uuid.UUID(principal.user_id),
             "pid": body.past_paper_id,
             "q": json.dumps(body.questions),
@@ -285,10 +292,10 @@ async def create_attempt(
             "tt": body.time_taken_secs,
             "xp": xp,
         },
-    )).mappings().first()
+    )
     await award_xp(sess, uuid.UUID(principal.user_id), "exam_complete", xp)
     await sess.commit()
-    return {"attemptId": str(row["id"]), "xpEarned": xp, "percentage": pct}
+    return {"attemptId": new_id, "xpEarned": xp, "percentage": pct}
 
 
 @router.get("/history")

@@ -28,7 +28,7 @@ async def progress_summary(
     xp_row = (await sess.execute(
         text(
             "SELECT COALESCE(SUM(xp_earned),0) AS week_xp, COALESCE(SUM(duration_mins),0) AS week_mins "
-            "FROM progress_logs WHERE user_id = :uid AND logged_date >= NOW() - INTERVAL '7 days'"
+            "FROM progress_logs WHERE user_id = :uid AND logged_date >= NOW() - INTERVAL 7 DAY"
         ),
         {"uid": uid},
     )).mappings().first()
@@ -86,10 +86,10 @@ async def progress_log(
                 """
                 INSERT INTO subject_scores (user_id, subject_id, avg_score, attempts)
                 VALUES (:uid, :sid, :sc, 1)
-                ON CONFLICT (user_id, subject_id) DO UPDATE SET
-                  avg_score = (subject_scores.avg_score * subject_scores.attempts + :sc)
-                              / (subject_scores.attempts + 1),
-                  attempts = subject_scores.attempts + 1,
+                ON DUPLICATE KEY UPDATE
+                  avg_score = (avg_score * attempts + VALUES(avg_score))
+                              / (attempts + 1),
+                  attempts = attempts + 1,
                   last_updated = NOW()
                 """
             ),

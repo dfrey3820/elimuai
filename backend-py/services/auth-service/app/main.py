@@ -6,9 +6,9 @@ from fastapi import FastAPI
 from elimu_common.app_factory import create_app
 from elimu_common.events import EventBus
 
-from app.deps import settings
-from app.routers.auth import router as auth_router
-from app.routers.internal import router as internal_router
+from .deps import settings
+from .routers.auth import router as auth_router
+from .routers.internal import router as internal_router
 
 
 async def _startup(app: FastAPI) -> None:

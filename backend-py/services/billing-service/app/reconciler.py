@@ -148,8 +148,8 @@ _PENDING_SQL = text(
     FROM payments
     WHERE status = 'pending'
       AND method = 'mpesa'
-      AND created_at < NOW() - make_interval(secs => :min_age_seconds)
-      AND created_at > NOW() - make_interval(secs => :max_age_seconds)
+      AND created_at < NOW() - INTERVAL :min_age_seconds SECOND
+      AND created_at > NOW() - INTERVAL :max_age_seconds SECOND
       AND (mpesa_checkout_id IS NOT NULL OR metadata ? 'gateway_txn_id')
     ORDER BY created_at ASC
     LIMIT :batch_size

@@ -73,8 +73,7 @@ async def award_xp(
                         INSERT INTO leaderboard_entries
                           (user_id, scope, scope_id, country, period, period_key, xp)
                         VALUES (:uid, :sc, :sid, :ctry, :p, :pk, :xp)
-                        ON CONFLICT (user_id, scope, scope_id, period, period_key)
-                        DO UPDATE SET xp = leaderboard_entries.xp + :xp, updated_at = NOW()
+                        ON DUPLICATE KEY UPDATE xp = xp + VALUES(xp), updated_at = NOW()
                         """
                     ),
                     {"uid": user_id, "sc": scope, "sid": scope_id, "ctry": ctry,
@@ -160,8 +159,7 @@ async def check_achievements(sess: AsyncSession, user_id: uuid.UUID) -> list[str
                 continue
             await sess.execute(
                 text(
-                    "INSERT INTO user_achievements (user_id, achievement_id) VALUES (:uid, :aid) "
-                    "ON CONFLICT DO NOTHING"
+                    "INSERT IGNORE INTO user_achievements (user_id, achievement_id) VALUES (:uid, :aid)"
                 ),
                 {"uid": user_id, "aid": ach["id"]},
             )

@@ -3,13 +3,16 @@ src/elimu_common/__init__.py
 src/elimu_common/app_factory.py
 src/elimu_common/auth.py
 src/elimu_common/bullmq.py
+src/elimu_common/ch6_commission.py
 src/elimu_common/config.py
 src/elimu_common/db.py
 src/elimu_common/errors.py
 src/elimu_common/events.py
 src/elimu_common/hmac_util.py
 src/elimu_common/http_client.py
+src/elimu_common/local_events.py
 src/elimu_common/logger.py
+src/elimu_common/types.py
 src/elimu_common.egg-info/PKG-INFO
 src/elimu_common.egg-info/SOURCES.txt
 src/elimu_common.egg-info/dependency_links.txt

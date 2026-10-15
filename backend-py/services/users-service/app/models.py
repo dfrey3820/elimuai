@@ -5,8 +5,8 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import ENUM as PgEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Enum as PgEnum
+from elimu_common.types import GUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -16,21 +16,21 @@ class Base(DeclarativeBase):
 
 UserRole = PgEnum(
     "student", "teacher", "parent", "admin", "super_admin",
-    name="user_role", create_type=False,
+    name="user_role",
 )
 PlanType = PgEnum(
     "free", "student", "teacher", "parent", "family", "school", "enterprise",
-    name="plan_type", create_type=False,  # kept in sync with billing-service / DB enum
+    name="plan_type",  # kept in sync with billing-service / DB enum
 )
-CountryCode = PgEnum("KE", "TZ", "UG", name="country_code", create_type=False)
-LanguageCode = PgEnum("en", "sw", name="language_code", create_type=False)
+CountryCode = PgEnum("KE", "TZ", "UG", name="country_code")
+LanguageCode = PgEnum("en", "sw", name="language_code")
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    school_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True)
@@ -60,7 +60,7 @@ class User(Base):
 class ParentChild(Base):
     __tablename__ = "parent_children"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    parent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    child_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    parent_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    child_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

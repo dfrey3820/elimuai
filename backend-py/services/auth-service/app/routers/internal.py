@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from elimu_common.auth import decode_jwt
 
-from app.deps import get_session, settings
-from app.models import User, UserSession
+from ..deps import get_session, settings
+from ..models import User, UserSession
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 

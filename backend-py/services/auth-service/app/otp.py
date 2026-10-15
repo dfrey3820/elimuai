@@ -10,7 +10,7 @@ import structlog
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import OtpToken
+from .models import OtpToken
 
 log = structlog.get_logger(__name__)
 

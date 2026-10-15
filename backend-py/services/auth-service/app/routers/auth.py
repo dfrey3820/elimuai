@@ -17,11 +17,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from elimu_common.auth import Principal, decode_jwt
 from elimu_common.events import EventBus
 
-from app.deps import current_principal, get_event_bus, get_session, settings
-from app.models import RefreshToken, School, User, UserSession
-from app.notifications import emit_user_registered, send_otp_email
-from app.otp import send_otp, verify_otp
-from app.schemas import (
+from ..deps import current_principal, get_event_bus, get_session, settings
+from ..models import RefreshToken, School, User, UserSession
+from ..notifications import emit_user_registered, send_otp_email
+from ..otp import send_otp, verify_otp
+from ..schemas import (
     ChangePasswordIn,
     DeleteAccountIn,
     LoginIn,
@@ -37,7 +37,7 @@ from app.schemas import (
     UserOut,
     VerifyOtpIn,
 )
-from app.security import generate_tokens, hash_password, verify_password
+from ..security import generate_tokens, hash_password, verify_password
 
 log = structlog.get_logger("auth-service")
 router = APIRouter(prefix="/api/auth", tags=["auth"])

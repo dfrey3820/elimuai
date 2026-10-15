@@ -10,7 +10,7 @@ bus, one per admin user matched by each rule:
 Idempotency is enforced by the ``subscription_reminders`` table:
 
   * free_upgrade  — resend allowed only after ``reminders_free_cooldown_days``
-  * expiring_soon — one send per unique ``plan_expires::date`` per user
+  * expiring_soon — one send per unique ``DATE(plan_expires)`` per user
 
 notifications-service consumes the events and dispatches the emails.
 """
@@ -45,7 +45,7 @@ _FREE_SQL = text(
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'free_upgrade'
-          AND r.sent_at > NOW() - make_interval(days => :cooldown)
+          AND r.sent_at > NOW() - INTERVAL :cooldown DAY
       )
     """
 )
@@ -61,12 +61,12 @@ _EXPIRING_SQL = text(
       AND u.email IS NOT NULL
       AND u.plan_expires IS NOT NULL
       AND u.plan_expires >= NOW()
-      AND u.plan_expires <= NOW() + make_interval(days => :days)
+      AND u.plan_expires <= NOW() + INTERVAL :days DAY
       AND NOT EXISTS (
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'expiring_soon'
-          AND r.reference = (u.plan_expires)::date
+          AND r.reference = DATE(u.plan_expires)
       )
     """
 )
@@ -89,13 +89,13 @@ _LAPSED_SQL = text(
         SELECT COUNT(*) FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'renewal_invoice'
-          AND r.reference = (u.plan_expires)::date
+          AND r.reference = DATE(u.plan_expires)
       ) < :max_sends
       AND NOT EXISTS (
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'renewal_invoice'
-          AND r.sent_at > NOW() - make_interval(days => :gap_days)
+          AND r.sent_at > NOW() - INTERVAL :gap_days DAY
       )
     """
 )
@@ -121,13 +121,13 @@ _TRIAL_EXPIRED_SQL = text(
         SELECT COUNT(*) FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'trial_invoice'
-          AND r.reference = (u.trial_expires)::date
+          AND r.reference = DATE(u.trial_expires)
       ) < :max_sends
       AND NOT EXISTS (
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'trial_invoice'
-          AND r.sent_at > NOW() - make_interval(days => :gap_days)
+          AND r.sent_at > NOW() - INTERVAL :gap_days DAY
       )
     """
 )

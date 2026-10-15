@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
-from sqlalchemy.dialects.postgresql import ENUM as PgEnum
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Enum as PgEnum
+from elimu_common.types import GUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -16,20 +16,20 @@ class Base(DeclarativeBase):
 
 UserRole = PgEnum(
     "student", "teacher", "parent", "admin", "super_admin",
-    name="user_role", create_type=False,
+    name="user_role",
 )
 PlanType = PgEnum(
     "free", "student", "teacher", "parent", "family", "school", "enterprise",
-    name="plan_type", create_type=False,  # kept in sync with billing-service / DB enum
+    name="plan_type",  # kept in sync with billing-service / DB enum
 )
-CountryCode = PgEnum("KE", "TZ", "UG", name="country_code", create_type=False)
-LanguageCode = PgEnum("en", "sw", name="language_code", create_type=False)
+CountryCode = PgEnum("KE", "TZ", "UG", name="country_code")
+LanguageCode = PgEnum("en", "sw", name="language_code")
 
 
 class School(Base):
     __tablename__ = "schools"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[str] = mapped_column(CountryCode, nullable=False, server_default="KE")
     county: Mapped[str | None] = mapped_column(String(100))
@@ -46,8 +46,8 @@ class School(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    school_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True)
@@ -66,9 +66,9 @@ class User(Base):
 class ClassRoom(Base):
     __tablename__ = "classes"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    school_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
-    teacher_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID | None] = mapped_column(GUID())
+    teacher_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     grade_level: Mapped[str | None] = mapped_column(String(50))
     curriculum: Mapped[str | None] = mapped_column(String(50))
@@ -79,6 +79,6 @@ class ClassRoom(Base):
 class ClassStudent(Base):
     __tablename__ = "class_students"
 
-    class_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True)
-    student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    class_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("classes.id", ondelete="CASCADE"), primary_key=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

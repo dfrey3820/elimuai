@@ -74,7 +74,7 @@ async def _load(sess: AsyncSession, invoice_id: str):
         SELECT i.id, i.invoice_number, i.plan, i.billing_cycle, i.amount, i.currency,
                i.status, u.id AS user_id, u.name, u.phone
         FROM invoices i JOIN users u ON u.id = i.user_id
-        WHERE i.id = CAST(:id AS uuid)
+        WHERE i.id = :id
         """
     ), {"id": invoice_id})).mappings().first()
     if not row:
@@ -135,7 +135,7 @@ async def renew_initiate(token: str, sess: AsyncSession = Depends(get_session)):
         INSERT INTO payments (user_id, plan, billing_cycle, amount, currency, method,
                               status, phone_number, reference, invoice_id, metadata)
         VALUES (:uid, :plan, :cycle, :amount, :currency, 'mpesa',
-                'pending', :phone, :ref, CAST(:inv AS uuid), CAST(:meta AS jsonb))
+                'pending', :phone, :ref, :inv, CAST(:meta AS JSON))
         """
     ), {
         "uid": inv["user_id"], "plan": inv["plan"], "cycle": inv["billing_cycle"],
@@ -160,7 +160,7 @@ async def renew_initiate(token: str, sess: AsyncSession = Depends(get_session)):
     except PaymentGatewayError:
         await sess.execute(text(
             "UPDATE payments SET status = 'failed', "
-            "metadata = COALESCE(metadata, '{}'::jsonb) || '{\"error\":\"gateway_error\"}'::jsonb "
+            "metadata = JSON_MERGE_PATCH(COALESCE(metadata, '{}'), '{\"error\":\"gateway_error\"}') "
             "WHERE reference = :ref"
         ), {"ref": reference})
         await sess.commit()

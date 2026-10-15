@@ -256,8 +256,7 @@ async def onboard_students(
             if effective_class_id:
                 await sess.execute(
                     text(
-                        "INSERT INTO class_students (class_id, student_id) VALUES (:cid, :sid) "
-                        "ON CONFLICT DO NOTHING"
+                        "INSERT IGNORE INTO class_students (class_id, student_id) VALUES (:cid, :sid)"
                     ),
                     {"cid": effective_class_id, "sid": existing},
                 )
