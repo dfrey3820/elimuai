@@ -15,7 +15,6 @@ Differences from the microservice deployment:
 from __future__ import annotations
 
 import os
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,40 +51,33 @@ notif_settings = notif_worker.Settings()  # type: ignore[call-arg]
 logger = configure_logging("elimuai-monolith", billing_settings.log_level)
 db = DB(billing_settings.database_url)
 
+# a2wsgi never runs ASGI lifespan, so all app.state wiring happens at import
+# time. Nothing here needs a running event loop.
+_bus = LocalEventBus()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    bus = LocalEventBus()
 
-    async def _notify(topic: str, payload: dict) -> None:
-        await notif_worker.handle(notif_settings, topic, payload)
+async def _notify(topic: str, payload: dict) -> None:
+    await notif_worker.handle(notif_settings, topic, payload)
 
-    bus.register(_notify)
 
-    app.state.db = db
-    app.state.logger = logger
-    app.state.settings = billing_settings  # scheduler/reconciler read billing knobs
-    app.state.event_bus = bus
-    app.state.bullmq = None  # BullMQ path disabled — payments go via HTTP gateway
+_bus.register(_notify)
 
-    if learning_settings.anthropic_api_key:
-        try:
-            from anthropic import Anthropic
-            app.state.anthropic = Anthropic(api_key=learning_settings.anthropic_api_key)
-        except Exception:  # noqa: BLE001
-            app.state.anthropic = None
-    else:
-        app.state.anthropic = None
+app = FastAPI(title="elimuai-api", version="0.1.0")
 
-    logger.info("monolith.startup")
+app.state.db = db
+app.state.logger = logger
+app.state.settings = billing_settings  # scheduler/reconciler read billing knobs
+app.state.event_bus = _bus
+app.state.bullmq = None  # BullMQ path disabled — payments go via HTTP gateway
+
+if learning_settings.anthropic_api_key:
     try:
-        yield
-    finally:
-        await db.dispose()
-        logger.info("monolith.shutdown")
-
-
-app = FastAPI(title="elimuai-api", version="0.1.0", lifespan=lifespan)
+        from anthropic import Anthropic
+        app.state.anthropic = Anthropic(api_key=learning_settings.anthropic_api_key)
+    except Exception:  # noqa: BLE001
+        app.state.anthropic = None
+else:
+    app.state.anthropic = None
 
 register_exception_handlers(app, is_prod=(billing_settings.env == "production"))
 

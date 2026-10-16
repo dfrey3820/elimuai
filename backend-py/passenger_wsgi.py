@@ -1,8 +1,9 @@
-"""Passenger entry point for cPanel.
+"""Passenger/lsapi entry point for cPanel.
 
-cPanel's "Setup Python App" looks for passenger_wsgi.py in the application
-root. Deploy the whole backend-py/ tree as the application root, then copy
-this file there (the GitHub Actions workflow does both).
+lswsgi imports this module once, then forks worker processes. a2wsgi's
+ASGIMiddleware runs a dedicated event-loop thread, and threads do not survive
+fork — so the middleware must be constructed lazily in each worker (keyed by
+PID), never at import time.
 """
 import os
 import sys
@@ -16,8 +17,17 @@ sys.path.insert(1, str(BASE / "libs" / "elimu_common" / "src"))
 # pydantic-settings resolves env_file=".env" against the CWD.
 os.chdir(BASE)
 
-from a2wsgi import ASGIMiddleware  # noqa: E402
-
 from monolith.app import app as asgi_app  # noqa: E402
 
-application = ASGIMiddleware(asgi_app)
+_wrapped = None
+_wrapped_pid = None
+
+
+def application(environ, start_response):
+    global _wrapped, _wrapped_pid
+    pid = os.getpid()
+    if _wrapped is None or _wrapped_pid != pid:
+        from a2wsgi import ASGIMiddleware
+        _wrapped = ASGIMiddleware(asgi_app)
+        _wrapped_pid = pid
+    return _wrapped(environ, start_response)
