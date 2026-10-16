@@ -76,7 +76,7 @@ async def award_xp(
                         ON DUPLICATE KEY UPDATE xp = xp + VALUES(xp), updated_at = NOW()
                         """
                     ),
-                    {"uid": user_id, "sc": scope, "sid": scope_id, "ctry": ctry,
+                    {"uid": user_id, "sc": scope, "sid": str(scope_id) if scope_id else "", "ctry": ctry,
                      "p": period, "pk": period_key, "xp": xp},
                 )
         await sess.commit()

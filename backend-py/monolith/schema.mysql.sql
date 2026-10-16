@@ -228,14 +228,14 @@ CREATE TABLE IF NOT EXISTS user_achievements (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ─── LEADERBOARDS ────────────────────────────────────────────────────────────
--- scope_id is NULLable; MySQL treats NULLs as distinct in unique keys, so the
--- unique key uses a stored generated column that maps NULL -> ''.
+-- scope_id uses '' (not NULL) for global/country scopes — MySQL treats NULLs as
+-- distinct in unique keys, and MariaDB forbids generated columns alongside
+-- DEFAULT (UUID()). The app inserts '' explicitly.
 CREATE TABLE IF NOT EXISTS leaderboard_entries (
   id           CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
   user_id      CHAR(36) NOT NULL,
   scope        VARCHAR(20) NOT NULL,
-  scope_id     CHAR(36),
-  scope_id_key CHAR(36) AS (COALESCE(scope_id, '')) STORED,
+  scope_id     CHAR(36) NOT NULL DEFAULT '',
   country      ENUM('KE','TZ','UG'),
   period       VARCHAR(10) NOT NULL,
   period_key   VARCHAR(20) NOT NULL,
@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS leaderboard_entries (
   tests_taken  INT DEFAULT 0,
   avg_score    DECIMAL(5,2) DEFAULT 0,
   updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_leaderboard_entries (user_id, scope, scope_id_key, period, period_key),
+  UNIQUE KEY uq_leaderboard_entries (user_id, scope, scope_id, period, period_key),
   KEY idx_leaderboard      (scope, period, period_key, xp),
   KEY idx_leaderboard_user (user_id),
   CONSTRAINT fk_leaderboard_entries_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
