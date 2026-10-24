@@ -136,10 +136,10 @@ async def list_teachers(
                    c.subject AS subject,
                    (SELECT COUNT(*) FROM class_students cs WHERE cs.class_id = c.id) AS student_count
             FROM users u
-            LEFT JOIN LATERAL (
-              SELECT id, name, grade_level, subject FROM classes
-              WHERE teacher_id = u.id ORDER BY created_at ASC LIMIT 1
-            ) c ON TRUE
+            LEFT JOIN classes c ON c.id = (
+              SELECT c2.id FROM classes c2
+              WHERE c2.teacher_id = u.id ORDER BY c2.created_at ASC LIMIT 1
+            )
             WHERE {where_clause}
             ORDER BY u.created_at DESC
             """

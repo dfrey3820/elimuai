@@ -150,7 +150,7 @@ _PENDING_SQL = text(
       AND method = 'mpesa'
       AND created_at < NOW() - INTERVAL :min_age_seconds SECOND
       AND created_at > NOW() - INTERVAL :max_age_seconds SECOND
-      AND (mpesa_checkout_id IS NOT NULL OR metadata ? 'gateway_txn_id')
+      AND (mpesa_checkout_id IS NOT NULL OR JSON_CONTAINS_PATH(metadata, 'one', '$.gateway_txn_id'))
     ORDER BY created_at ASC
     LIMIT :batch_size
     """

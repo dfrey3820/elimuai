@@ -166,7 +166,7 @@ async def _renewal_invoice_for(sess, user_id, plan: str, plan_expires) -> Any:
     cycle = (await sess.execute(
         text(
             "SELECT billing_cycle FROM payments WHERE user_id = :uid AND status = 'completed' "
-            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            "ORDER BY completed_at IS NULL, completed_at DESC LIMIT 1"
         ),
         {"uid": user_id},
     )).scalar_one_or_none() or "monthly"
@@ -192,8 +192,8 @@ async def _renewal_invoice_for(sess, user_id, plan: str, plan_expires) -> Any:
 async def run_once(app) -> dict[str, int]:
     """Execute a single sweep. Returns counts per kind.
 
-    Safe to call from an admin endpoint for ad-hoc testing. A Postgres
-    advisory lock makes the sweep single-flight across scaled-out tasks.
+    Safe to call from an admin endpoint for ad-hoc testing. A named DB lock
+    makes the sweep single-flight (cron run vs. admin endpoint).
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
@@ -201,7 +201,7 @@ async def run_once(app) -> dict[str, int]:
 
     async for sess in app.state.db.session():
         got_lock = (await sess.execute(
-            text("SELECT pg_try_advisory_lock(hashtext('elimuai_reminders_sweep'))")
+            text("SELECT GET_LOCK('elimuai_reminders_sweep', 0)")
         )).scalar()
         if not got_lock:
             log.info("reminders.skipped_lock_held")
@@ -210,7 +210,7 @@ async def run_once(app) -> dict[str, int]:
             counts = await _sweep(sess, settings, bus)
         finally:
             await sess.execute(
-                text("SELECT pg_advisory_unlock(hashtext('elimuai_reminders_sweep'))")
+                text("SELECT RELEASE_LOCK('elimuai_reminders_sweep')")
             )
     log.info("reminders.swept", **counts)
     return counts

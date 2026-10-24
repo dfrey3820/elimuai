@@ -7,16 +7,20 @@ RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
 
-# Never rewrite real files or directories
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
+# Real files (assets, .html, .txt payloads) are served as-is
+RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^ - [L]
 
-# /login -> /login.html (Next.js static export emits .html pages)
-RewriteCond %{REQUEST_FILENAME}.html -f
-RewriteRule ^(.*)$ $1.html [L]
+# /dashboard and /dashboard/ -> dashboard.html. Next also emits a dashboard/
+# directory (RSC payloads), so a plain "-d => stop" rule would 404 here.
+RewriteCond %{DOCUMENT_ROOT}/$1.html -f
+RewriteRule ^(.+?)/?$ /$1.html [L]
 
-# SPA-ish fallback for anything else
+RewriteRule ^$ /index.html [L]
+
+# Unknown page-like paths fall back to the SPA shell; missing assets (anything
+# with a file extension) stay real 404s instead of returning HTML.
+RewriteCond %{REQUEST_URI} !\.[A-Za-z0-9]+$
 RewriteRule ^ /index.html [L]
 
 # Long-cache immutable Next.js build assets
