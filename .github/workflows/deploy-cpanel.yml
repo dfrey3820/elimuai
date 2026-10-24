@@ -98,6 +98,18 @@ jobs:
             StrictHostKeyChecking accept-new
           EOF
 
+      - name: Snapshot before deploy
+        # Restore point for everything this job can touch (incl. neighbouring
+        # docroots under public_html). Keeps the last 5 on the server.
+        run: |
+          ssh cpanel "
+            set -e
+            umask 077
+            mkdir -p ~/backups/predeploy
+            tar czf ~/backups/predeploy/\$(date -u +%Y%m%dT%H%M%SZ).tar.gz --warning=no-file-changed $WWW_DIR $API_DIR
+            ls -1t ~/backups/predeploy/*.tar.gz | tail -n +6 | xargs -r rm --
+          "
+
       - name: Rsync backend
         run: |
           rsync -az --delete \
@@ -108,13 +120,12 @@ jobs:
             backend-py/ cpanel:$API_DIR/
 
       - name: Rsync frontend
-        # public_html also holds other sites' docroots (malipo*, payments/);
-        # --delete must never reach into them.
+        # public_html is shared with other sites, so it never gets a blanket
+        # --delete: files are only added/updated, and only the hashed _next/
+        # build assets (which we own) are pruned.
         run: |
-          rsync -az --delete \
-            --exclude '/.well-known' --exclude '/cgi-bin' \
-            --exclude '/payments/' --exclude '/malipoengine/' \
-            frontend/out/ cpanel:$WWW_DIR/
+          rsync -az frontend/out/ cpanel:$WWW_DIR/
+          rsync -az --delete frontend/out/_next/ cpanel:$WWW_DIR/_next/
 
       - name: Install deps + restart Passenger
         run: |
