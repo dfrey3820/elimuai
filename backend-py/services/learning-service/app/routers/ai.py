@@ -156,7 +156,7 @@ async def tutor(
     if body.session_id:
         await sess.execute(
             text(
-                "UPDATE ai_sessions SET messages = JSON_MERGE_PRESERVE(messages, CAST(:m AS JSON)), updated_at = NOW() "
+                "UPDATE ai_sessions SET messages = JSON_MERGE_PRESERVE(messages, :m), updated_at = NOW() "
                 "WHERE id = :sid AND user_id = :uid"
             ),
             {"m": new_messages_json, "sid": body.session_id, "uid": user_id},
@@ -166,7 +166,7 @@ async def tutor(
         await sess.execute(
             text(
                 "INSERT INTO ai_sessions (user_id, type, language, messages) "
-                "VALUES (:uid, 'tutor', :lang, CAST(:m AS JSON))"
+                "VALUES (:uid, 'tutor', :lang, :m)"
             ),
             {"uid": user_id, "lang": lang, "m": full},
         )

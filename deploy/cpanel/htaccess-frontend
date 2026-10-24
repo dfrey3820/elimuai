@@ -3,6 +3,9 @@
 
 RewriteEngine On
 
+# Without this the PWA manifest is served as octet-stream and is ignored by browsers
+AddType application/manifest+json .webmanifest
+
 # Force HTTPS
 RewriteCond %{HTTPS} !=on
 RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]

@@ -184,7 +184,7 @@ async def generate_paper(
               (id, title, subject_id, country, curriculum, grade_level, year,
                is_active, school_id, created_by, questions, ai_generated)
             VALUES (:id, :title, :sub, :c, :cu, :lvl, :yr,
-                    TRUE, NULL, :uid, CAST(:q AS JSON), TRUE)
+                    TRUE, NULL, :uid, :q, TRUE)
             """
         ),
         {
@@ -277,7 +277,7 @@ async def create_attempt(
             INSERT INTO exam_attempts
               (id, user_id, past_paper_id, questions, answers, score, total, percentage,
                time_taken_secs, completed, xp_earned, completed_at)
-            VALUES (:id, :uid, :pid, CAST(:q AS JSON), CAST(:a AS JSON), :s, :t, :pct, :tt, TRUE, :xp, NOW())
+            VALUES (:id, :uid, :pid, :q, :a, :s, :t, :pct, :tt, TRUE, :xp, NOW())
             """
         ),
         {

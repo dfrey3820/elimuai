@@ -135,7 +135,7 @@ async def renew_initiate(token: str, sess: AsyncSession = Depends(get_session)):
         INSERT INTO payments (user_id, plan, billing_cycle, amount, currency, method,
                               status, phone_number, reference, invoice_id, metadata)
         VALUES (:uid, :plan, :cycle, :amount, :currency, 'mpesa',
-                'pending', :phone, :ref, :inv, CAST(:meta AS JSON))
+                'pending', :phone, :ref, :inv, :meta)
         """
     ), {
         "uid": inv["user_id"], "plan": inv["plan"], "cycle": inv["billing_cycle"],

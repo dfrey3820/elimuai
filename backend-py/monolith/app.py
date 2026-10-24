@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from elimu_common.db import DB
@@ -42,6 +42,14 @@ exams_routes = import_submodule("learning", "routers.exams")
 progress_routes = import_submodule("learning", "routers.progress")
 leaderboard_routes = import_submodule("learning", "routers.leaderboard")
 admin_routes = import_submodule("admin", "routers.admin")
+ch6_routes = import_submodule("admin", "routers.ch6_insurance_network")
+
+# /api/ch6/conversions/process is internal (billing -> admin) and has no auth;
+# the AWS gateway never routed it, so it must not be exposed here either.
+_ch6_public = APIRouter(tags=["ch6-insurance-network"])
+_ch6_public.routes.extend(
+    r for r in ch6_routes.router.routes if getattr(r, "path", "") != "/api/ch6/conversions/process"
+)
 notif_worker = import_submodule("notifications", "worker")
 
 billing_settings = import_submodule("billing", "deps").settings
@@ -118,5 +126,6 @@ for router in (
     progress_routes.router,
     leaderboard_routes.router,
     admin_routes.router,
+    _ch6_public,
 ):
     app.include_router(router)

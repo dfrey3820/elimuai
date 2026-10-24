@@ -301,7 +301,7 @@ async def create_agent(body: AgentCreateIn, sess: AsyncSession = Depends(get_ses
         """
         INSERT INTO marketing_agents
           (id, user_id, agent_code, commission_rate, payout_method, payout_details, notes)
-        VALUES (:id, :u, :c, :r, :pm, CAST(:pd AS JSON), :n)
+        VALUES (:id, :u, :c, :r, :pm, :pd, :n)
         """
     ), {
         "id": new_agent_id,
@@ -342,10 +342,7 @@ async def update_agent(agent_id: uuid.UUID, body: AgentUpdateIn, sess: AsyncSess
     if not updates:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
 
-    set_clause = ", ".join(
-        f"{k} = CAST(:{k} AS JSON)" if k == "payout_details" else f"{k} = :{k}"
-        for k in updates
-    )
+    set_clause = ", ".join(f"{k} = :{k}" for k in updates)
     q = f"UPDATE marketing_agents SET {set_clause}, updated_at = NOW() WHERE id = :id"
     await sess.execute(text(q), {**updates, "id": agent_id})
     row = (await sess.execute(

@@ -373,6 +373,20 @@ async def mpesa_initiate(
         )
 
     # Enqueue for mpesa-service (Node BullMQ consumer)
+    if bullmq is None:
+        # No gateway configured and no queue available (single-process hosting).
+        await sess.execute(
+            text(
+                "UPDATE payments SET status = 'failed', "
+                "metadata = JSON_MERGE_PATCH(COALESCE(metadata, '{}'), :m) WHERE id = :id"
+            ),
+            {"id": payment.id, "m": json.dumps({"error": "no_payment_backend"})},
+        )
+        await sess.commit()
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Payments are temporarily unavailable. Contact support; you were not charged.",
+        )
     job_id = await bullmq.enqueue(
         settings.payment_queue_name,
         "stkpush",
@@ -627,7 +641,7 @@ async def create_coupon_admin(
                starts_at, expires_at, created_by)
             VALUES
               (:id, UPPER(:code), :description, :type, :value, :min_amount, :max_discount,
-               CAST(:applicable_plans AS JSON), CAST(:applicable_cycles AS JSON), :max_uses, :max_uses_per_user,
+               :applicable_plans, :applicable_cycles, :max_uses, :max_uses_per_user,
                :starts_at, :expires_at, :created_by)
             """
         ), {
@@ -672,8 +686,8 @@ async def update_coupon_admin(
           value             = COALESCE(:value, value),
           min_amount        = COALESCE(:min_amount, min_amount),
           max_discount      = :max_discount,
-          applicable_plans  = COALESCE(CAST(:applicable_plans AS JSON), applicable_plans),
-          applicable_cycles = COALESCE(CAST(:applicable_cycles AS JSON), applicable_cycles),
+          applicable_plans  = COALESCE(:applicable_plans, applicable_plans),
+          applicable_cycles = COALESCE(:applicable_cycles, applicable_cycles),
           max_uses          = :max_uses,
           max_uses_per_user = COALESCE(:max_uses_per_user, max_uses_per_user),
           is_active         = COALESCE(:is_active, is_active),
