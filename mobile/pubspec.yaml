@@ -1,0 +1,36 @@
+name: elimuai_mobile
+description: "ElimuAI learning companion for Android and iOS."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_markdown_plus: ^1.0.12
+  flutter_secure_storage: ^11.2.0
+  http: ^1.6.0
+  image_picker: ^1.2.4
+  shared_preferences: ^2.5.6
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
+        - asset: assets/fonts/Manrope.ttf
+          weight: 500
+        - asset: assets/fonts/Manrope.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope.ttf
+          weight: 700
+        - asset: assets/fonts/Manrope.ttf
+          weight: 800
