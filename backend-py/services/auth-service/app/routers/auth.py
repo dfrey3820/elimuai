@@ -6,6 +6,7 @@ Ports the semantics of backend/src/routes/auth.js.
 from __future__ import annotations
 
 import uuid as uuid_mod
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -18,12 +19,13 @@ from elimu_common.auth import Principal, decode_jwt
 from elimu_common.events import EventBus
 
 from ..deps import current_principal, get_event_bus, get_session, settings
-from ..models import RefreshToken, School, User, UserSession
+from ..models import OtpToken, RefreshToken, School, User, UserSession
 from ..notifications import emit_user_registered, send_otp_email
 from ..otp import send_otp, verify_otp
 from ..schemas import (
     ChangePasswordIn,
     DeleteAccountIn,
+    ForgotPasswordIn,
     LoginIn,
     LoginOtpChallengeOut,
     LogoutIn,
@@ -31,6 +33,7 @@ from ..schemas import (
     RefreshOut,
     RegisterIn,
     RegisterOut,
+    ResetPasswordIn,
     ResendOtpIn,
     SessionOut,
     TokenPairOut,
@@ -73,6 +76,87 @@ async def _issue_tokens_and_session(
     )
     await session.commit()
     return access, refresh
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    body: ForgotPasswordIn,
+    session: AsyncSession = Depends(get_session),
+    bus: EventBus | None = Depends(get_event_bus),
+):
+    response = {
+        "success": True,
+        "message": "If an eligible account exists, a reset code has been emailed to it.",
+    }
+    user = await session.scalar(
+        select(User).where(
+            User.email == body.email,
+            User.is_active.is_(True),
+            User.email_verified.is_(True),
+        ).with_for_update()
+    )
+    if user is None or not user.password_hash or bus is None:
+        return response
+    await send_otp(
+        session,
+        email=user.email,
+        purpose="password_reset",
+        user_id=user.id,
+        expiry_min=settings.otp_expiry_min,
+        max_attempts=settings.otp_max_attempts,
+        cooldown_sec=settings.otp_cooldown_sec,
+        dispatch_email=lambda email, code, purpose: _dispatch_email(bus, email, code, purpose),
+        is_prod=True,
+    )
+    return response
+
+
+@router.post("/reset-password")
+async def reset_password(
+    body: ResetPasswordIn,
+    session: AsyncSession = Depends(get_session),
+):
+    invalid = "Invalid or expired reset code. Please request a new code."
+    user = await session.scalar(
+        select(User).where(
+            User.email == body.email,
+            User.is_active.is_(True),
+            User.email_verified.is_(True),
+        ).with_for_update()
+    )
+    if user is None:
+        raise HTTPException(400, invalid)
+    otp = await session.scalar(
+        select(OtpToken).where(
+            OtpToken.email == body.email,
+            OtpToken.user_id == user.id,
+            OtpToken.purpose == "password_reset",
+            OtpToken.verified.is_(False),
+        ).order_by(OtpToken.created_at.desc()).limit(1).with_for_update()
+    )
+    if otp is None:
+        raise HTTPException(400, invalid)
+    now = datetime.utcnow()
+    expires = otp.expires_at.replace(tzinfo=None)
+    if expires <= now or otp.attempts >= otp.max_attempts:
+        otp.verified = True
+        await session.commit()
+        raise HTTPException(400, invalid)
+    otp.attempts += 1
+    if not secrets.compare_digest(otp.code, body.code):
+        if otp.attempts >= otp.max_attempts:
+            otp.verified = True
+        await session.commit()
+        raise HTTPException(400, invalid)
+    user.password_hash = hash_password(body.new_password)
+    user.updated_at = now
+    otp.verified = True
+    await session.execute(update(OtpToken).where(OtpToken.user_id == user.id).values(verified=True))
+    await session.execute(delete(RefreshToken).where(RefreshToken.user_id == user.id))
+    await session.execute(update(UserSession).where(UserSession.user_id == user.id).values(is_revoked=True))
+    await session.commit()
+    log.info("password.reset", user_id=str(user.id))
+    return {"success": True, "message": "Password updated. Please sign in again."}
 
 
 # ─── POST /register ──────────────────────────────────────────────────────────

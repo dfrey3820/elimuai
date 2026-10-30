@@ -50,6 +50,8 @@ jobs:
           c = TestClient(app, raise_server_exceptions=False)
           # Routers mounted?
           assert c.get("/api/auth/login").status_code == 405
+          assert c.post("/api/auth/forgot-password", json={}).status_code == 422
+          assert c.post("/api/auth/reset-password", json={}).status_code == 422
           assert c.get("/api/admin/dashboard").status_code == 401
           # Identity-header spoofing must be rejected (no gateway on cPanel).
           r = c.get("/api/admin/dashboard",

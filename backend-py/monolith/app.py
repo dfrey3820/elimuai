@@ -15,10 +15,14 @@ Differences from the microservice deployment:
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
+from elimu_common.auth import Principal
 from elimu_common.db import DB
 from elimu_common.errors import register_exception_handlers
 from elimu_common.local_events import LocalEventBus
@@ -28,6 +32,7 @@ from .loader import import_submodule
 
 # ─── Load every service under its alias ─────────────────────────────────────
 auth_routes = import_submodule("auth", "routers.auth")
+auth_models = import_submodule("auth", "models")
 users_routes = import_submodule("users", "routers.users")
 schools_routes = import_submodule("schools", "routers.schools")
 onboarding_routes = import_submodule("schools", "routers.onboarding")
@@ -77,6 +82,35 @@ app.state.logger = logger
 app.state.settings = billing_settings  # scheduler/reconciler read billing knobs
 app.state.event_bus = _bus
 app.state.bullmq = None  # BullMQ path disabled — payments go via HTTP gateway
+
+
+async def _validate_principal(principal: Principal) -> Principal:
+    if not principal.jti:
+        raise HTTPException(401, "Session missing. Please sign in again.")
+    try:
+        user_id = uuid.UUID(principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(401, "Invalid user id") from exc
+    async for session in db.session():
+        role = await session.scalar(
+            select(auth_models.User.role).join(
+                auth_models.UserSession,
+                auth_models.UserSession.user_id == auth_models.User.id,
+            ).where(
+                auth_models.User.id == user_id,
+                auth_models.User.is_active.is_(True),
+                auth_models.UserSession.token_jti == principal.jti,
+                auth_models.UserSession.is_revoked.is_(False),
+                auth_models.UserSession.expires_at > datetime.utcnow(),
+            ).limit(1)
+        )
+        if role is None:
+            raise HTTPException(401, "Session expired or revoked")
+        return Principal(user_id=principal.user_id, role=role, jti=principal.jti)
+    raise HTTPException(503, "Session validation unavailable")
+
+
+app.state.validate_principal = _validate_principal
 
 if learning_settings.anthropic_api_key:
     try:

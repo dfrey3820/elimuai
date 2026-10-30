@@ -14,7 +14,7 @@ from .models import OtpToken
 
 log = structlog.get_logger(__name__)
 
-Purpose = Literal["signup", "login", "verify_email"]
+Purpose = Literal["signup", "login", "verify_email", "password_reset"]
 
 
 def _generate_code() -> str:

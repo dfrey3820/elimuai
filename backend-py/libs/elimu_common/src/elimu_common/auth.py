@@ -73,7 +73,8 @@ def make_principal_dependency(secret: str):
         x_user_role: str | None = Header(default=None),
     ) -> Principal:
         # Trust gateway-injected headers only when explicitly enabled.
-        if trust_gateway and x_user_id:
+        validator = getattr(request.app.state, "validate_principal", None)
+        if trust_gateway and x_user_id and validator is None:
             return Principal(user_id=x_user_id, role=x_user_role)
 
         # Fallback: verify JWT ourselves.
@@ -81,10 +82,13 @@ def make_principal_dependency(secret: str):
         if not token:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No token provided")
         payload = decode_jwt(token, secret)
+        if payload.get("type") == "refresh":
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "An access token is required")
         user_id = payload.get("userId") or payload.get("sub")
         if not user_id:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token missing user id")
-        return Principal(user_id=str(user_id), role=payload.get("role"), jti=payload.get("jti"))
+        principal = Principal(user_id=str(user_id), role=payload.get("role"), jti=payload.get("jti"))
+        return await validator(principal) if validator is not None else principal
 
     return get_principal
 
