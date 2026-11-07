@@ -1,6 +1,7 @@
 import { Poppins, Nunito } from "next/font/google";
 import Script from "next/script";
 import { AppProvider } from "@/context/AppContext";
+import { ToastProvider } from "@/components/Toast";
 import "@/styles.css";
 
 const poppins = Poppins({
@@ -54,7 +55,9 @@ export default function RootLayout({ children }) {
         <Script id="gtag-init" strategy="afterInteractive">
           {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','G-YYRWH5WLYK');`}
         </Script>
-        <AppProvider>{children}</AppProvider>
+        <AppProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </AppProvider>
       </body>
     </html>
   );

@@ -69,12 +69,12 @@ async def list_subjects(
         text(
             """
             SELECT * FROM subjects
-            WHERE (CAST(:c AS text) IS NULL OR country = CAST(:c AS country_code))
-              AND (CAST(:cu AS text) IS NULL OR curriculum = :cu)
-              AND (CAST(:l AS text) IS NULL
+            WHERE (CAST(:c AS CHAR) IS NULL OR country = :c)
+              AND (CAST(:cu AS CHAR) IS NULL OR curriculum = :cu)
+              AND (CAST(:l AS CHAR) IS NULL
                    OR grade_level = :l
-                   OR grade_level ILIKE 'Grade ' || :l || '%'
-                   OR :l ILIKE 'Grade ' || grade_level || '%')
+                   OR grade_level LIKE CONCAT('Grade ', :l, '%')
+                   OR :l LIKE CONCAT('Grade ', grade_level, '%'))
             ORDER BY name
             """
         ),
@@ -110,9 +110,9 @@ async def offline_lessons(
             SELECT id, title, title_sw, content, content_sw, grade_level, subject_id
             FROM offline_lessons
             WHERE is_active = TRUE
-              AND (CAST(:l AS text) IS NULL OR grade_level = :l)
-              AND (CAST(:cu AS text) IS NULL OR curriculum = :cu)
-              AND (school_id IS NULL OR school_id = CAST(:sid AS uuid))
+              AND (CAST(:l AS CHAR) IS NULL OR grade_level = :l)
+              AND (CAST(:cu AS CHAR) IS NULL OR curriculum = :cu)
+              AND (school_id IS NULL OR school_id = :sid)
             ORDER BY order_index
             """
         ),
@@ -159,7 +159,7 @@ async def list_lessons_manage(
             """
             SELECT ol.*, s.name AS subject_name FROM offline_lessons ol
             LEFT JOIN subjects s ON s.id = ol.subject_id
-            WHERE (:is_super = TRUE OR ol.school_id = CAST(:sid AS uuid))
+            WHERE (:is_super = TRUE OR ol.school_id = :sid)
             ORDER BY ol.order_index, ol.created_at DESC
             """
         ),
@@ -177,18 +177,19 @@ async def create_lesson(
     is_super = principal.has_role("super_admin")
     target_school = body.school_id if is_super else await _get_user_school_id(sess, principal.user_id)
 
-    row = (await sess.execute(
+    new_id = str(uuid.uuid4())
+    await sess.execute(
         text(
             """
             INSERT INTO offline_lessons
-              (title, title_sw, content, content_sw, subject_id, curriculum,
+              (id, title, title_sw, content, content_sw, subject_id, curriculum,
                grade_level, order_index, is_active, school_id, created_by)
-            VALUES (:title, :title_sw, :content, :content_sw, :sub, :cu,
-                    :lvl, :ord, :active, CAST(:sid AS uuid), :uid)
-            RETURNING id
+            VALUES (:id, :title, :title_sw, :content, :content_sw, :sub, :cu,
+                    :lvl, :ord, :active, :sid, :uid)
             """
         ),
         {
+            "id": new_id,
             "title": body.title,
             "title_sw": body.title_sw,
             "content": body.content,
@@ -201,9 +202,9 @@ async def create_lesson(
             "sid": target_school,
             "uid": uuid.UUID(principal.user_id),
         },
-    )).mappings().first()
+    )
     await sess.commit()
-    return {"id": str(row["id"])}
+    return {"id": new_id}
 
 
 async def _load_lesson_for_edit(sess: AsyncSession, lesson_id: uuid.UUID, principal) -> dict:
@@ -247,7 +248,7 @@ async def update_lesson(
               grade_level = :lvl,
               order_index = :ord,
               is_active = :active,
-              school_id = CAST(:sid AS uuid),
+              school_id = :sid,
               updated_at = NOW()
             WHERE id = :lid
             """
@@ -336,7 +337,7 @@ async def save_tutor_session(
                 """
                 SELECT id FROM subjects
                 WHERE LOWER(name) = LOWER(:name)
-                  AND (CAST(:cu AS text) IS NULL OR curriculum = :cu)
+                  AND (CAST(:cu AS CHAR) IS NULL OR curriculum = :cu)
                 LIMIT 1
                 """
             ),
@@ -351,18 +352,19 @@ async def save_tutor_session(
         f"**Answer:**\n{body.answer.strip()}"
     )
 
-    row = (await sess.execute(
+    new_id = str(uuid.uuid4())
+    await sess.execute(
         text(
             """
             INSERT INTO offline_lessons
-              (title, content, subject_id, curriculum, grade_level,
+              (id, title, content, subject_id, curriculum, grade_level,
                order_index, is_active, school_id, created_by)
-            VALUES (:title, :content, :sub, :cu, :lvl,
+            VALUES (:id, :title, :content, :sub, :cu, :lvl,
                     0, TRUE, :sid, :uid)
-            RETURNING id
             """
         ),
         {
+            "id": new_id,
             "title": title,
             "content": content,
             "sub": subject_id,
@@ -371,6 +373,6 @@ async def save_tutor_session(
             "sid": me["school_id"],
             "uid": uid,
         },
-    )).mappings().first()
+    )
     await sess.commit()
-    return {"id": str(row["id"]), "title": title}
+    return {"id": new_id, "title": title}

@@ -23,7 +23,7 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def _now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def generate_tokens(

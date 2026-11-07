@@ -10,11 +10,11 @@ import structlog
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import OtpToken
+from .models import OtpToken
 
 log = structlog.get_logger(__name__)
 
-Purpose = Literal["signup", "login", "verify_email"]
+Purpose = Literal["signup", "login", "verify_email", "password_reset"]
 
 
 def _generate_code() -> str:

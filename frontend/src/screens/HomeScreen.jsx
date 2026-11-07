@@ -51,8 +51,8 @@ export default function HomeScreen({ setActive, country, setCountry, level, setL
     return () => { alive = false; };
   }, [isOffline, user?.id]);
   const planLabel = (user?.plan || plan || "free").toUpperCase();
-  const streakDays = summary?.streak ?? 7;
-  const weekMins = summary?.weekMins ?? 320;
+  const streakDays = summary?.streak ?? 0;
+  const weekMins = summary?.week_mins ?? 0;
   // Once a student has been assigned a class (either by a teacher during onboarding, or by choosing
   // it themselves in the Profile modal), hide the country + class picker. Class changes are then
   // managed once per year from the Profile screen. Non-student roles (parents/guest) keep the picker.

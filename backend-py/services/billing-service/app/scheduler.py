@@ -10,7 +10,7 @@ bus, one per admin user matched by each rule:
 Idempotency is enforced by the ``subscription_reminders`` table:
 
   * free_upgrade  — resend allowed only after ``reminders_free_cooldown_days``
-  * expiring_soon — one send per unique ``plan_expires::date`` per user
+  * expiring_soon — one send per unique ``DATE(plan_expires)`` per user
 
 notifications-service consumes the events and dispatches the emails.
 """
@@ -45,7 +45,7 @@ _FREE_SQL = text(
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'free_upgrade'
-          AND r.sent_at > NOW() - make_interval(days => :cooldown)
+          AND r.sent_at > NOW() - INTERVAL :cooldown DAY
       )
     """
 )
@@ -61,12 +61,12 @@ _EXPIRING_SQL = text(
       AND u.email IS NOT NULL
       AND u.plan_expires IS NOT NULL
       AND u.plan_expires >= NOW()
-      AND u.plan_expires <= NOW() + make_interval(days => :days)
+      AND u.plan_expires <= NOW() + INTERVAL :days DAY
       AND NOT EXISTS (
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'expiring_soon'
-          AND r.reference = (u.plan_expires)::date
+          AND r.reference = DATE(u.plan_expires)
       )
     """
 )
@@ -89,13 +89,13 @@ _LAPSED_SQL = text(
         SELECT COUNT(*) FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'renewal_invoice'
-          AND r.reference = (u.plan_expires)::date
+          AND r.reference = DATE(u.plan_expires)
       ) < :max_sends
       AND NOT EXISTS (
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'renewal_invoice'
-          AND r.sent_at > NOW() - make_interval(days => :gap_days)
+          AND r.sent_at > NOW() - INTERVAL :gap_days DAY
       )
     """
 )
@@ -121,13 +121,13 @@ _TRIAL_EXPIRED_SQL = text(
         SELECT COUNT(*) FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'trial_invoice'
-          AND r.reference = (u.trial_expires)::date
+          AND r.reference = DATE(u.trial_expires)
       ) < :max_sends
       AND NOT EXISTS (
         SELECT 1 FROM subscription_reminders r
         WHERE r.user_id = u.id
           AND r.kind = 'trial_invoice'
-          AND r.sent_at > NOW() - make_interval(days => :gap_days)
+          AND r.sent_at > NOW() - INTERVAL :gap_days DAY
       )
     """
 )
@@ -166,7 +166,7 @@ async def _renewal_invoice_for(sess, user_id, plan: str, plan_expires) -> Any:
     cycle = (await sess.execute(
         text(
             "SELECT billing_cycle FROM payments WHERE user_id = :uid AND status = 'completed' "
-            "ORDER BY completed_at DESC NULLS LAST LIMIT 1"
+            "ORDER BY completed_at IS NULL, completed_at DESC LIMIT 1"
         ),
         {"uid": user_id},
     )).scalar_one_or_none() or "monthly"
@@ -192,8 +192,8 @@ async def _renewal_invoice_for(sess, user_id, plan: str, plan_expires) -> Any:
 async def run_once(app) -> dict[str, int]:
     """Execute a single sweep. Returns counts per kind.
 
-    Safe to call from an admin endpoint for ad-hoc testing. A Postgres
-    advisory lock makes the sweep single-flight across scaled-out tasks.
+    Safe to call from an admin endpoint for ad-hoc testing. A named DB lock
+    makes the sweep single-flight (cron run vs. admin endpoint).
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
@@ -201,7 +201,7 @@ async def run_once(app) -> dict[str, int]:
 
     async for sess in app.state.db.session():
         got_lock = (await sess.execute(
-            text("SELECT pg_try_advisory_lock(hashtext('elimuai_reminders_sweep'))")
+            text("SELECT GET_LOCK('elimuai_reminders_sweep', 0)")
         )).scalar()
         if not got_lock:
             log.info("reminders.skipped_lock_held")
@@ -210,7 +210,7 @@ async def run_once(app) -> dict[str, int]:
             counts = await _sweep(sess, settings, bus)
         finally:
             await sess.execute(
-                text("SELECT pg_advisory_unlock(hashtext('elimuai_reminders_sweep'))")
+                text("SELECT RELEASE_LOCK('elimuai_reminders_sweep')")
             )
     log.info("reminders.swept", **counts)
     return counts

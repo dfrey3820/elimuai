@@ -38,11 +38,11 @@ async def dashboard(sess: AsyncSession = Depends(get_session)):
         """
         SELECT
           COUNT(*) AS total_users,
-          COUNT(*) FILTER (WHERE role = 'student') AS students,
-          COUNT(*) FILTER (WHERE role = 'teacher') AS teachers,
-          COUNT(*) FILTER (WHERE role = 'parent')  AS parents,
-          COUNT(*) FILTER (WHERE is_active = TRUE) AS active_users,
-          COUNT(*) FILTER (WHERE plan != 'free')   AS paid_users
+          COALESCE(SUM(role = 'student'), 0) AS students,
+          COALESCE(SUM(role = 'teacher'), 0) AS teachers,
+          COALESCE(SUM(role = 'parent'), 0)  AS parents,
+          COALESCE(SUM(is_active = TRUE), 0) AS active_users,
+          COALESCE(SUM(plan != 'free'), 0)   AS paid_users
         FROM users
         """
     ))).mappings().first()
@@ -50,10 +50,10 @@ async def dashboard(sess: AsyncSession = Depends(get_session)):
         """
         SELECT
           COUNT(*) AS total,
-          COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-          COUNT(*) FILTER (WHERE status = 'pending')   AS pending,
-          COUNT(*) FILTER (WHERE status = 'failed')    AS failed,
-          COALESCE(SUM(amount) FILTER (WHERE status = 'completed'), 0) AS total_revenue
+          COALESCE(SUM(status = 'completed'), 0) AS completed,
+          COALESCE(SUM(status = 'pending'), 0)   AS pending,
+          COALESCE(SUM(status = 'failed'), 0)    AS failed,
+          COALESCE(SUM(CASE WHEN status = 'completed' THEN amount END), 0) AS total_revenue
         FROM payments
         """
     ))).mappings().first()
@@ -61,8 +61,8 @@ async def dashboard(sess: AsyncSession = Depends(get_session)):
         """
         SELECT
           COUNT(*) AS total,
-          COUNT(*) FILTER (WHERE status = 'sent')   AS sent,
-          COUNT(*) FILTER (WHERE status = 'failed') AS failed
+          COALESCE(SUM(status = 'sent'), 0)   AS sent,
+          COALESCE(SUM(status = 'failed'), 0) AS failed
         FROM sms_logs
         """
     ))).mappings().first()
@@ -103,7 +103,7 @@ async def list_users(
     elif status == "free":
         conditions.append("plan = 'free'")
     if search:
-        conditions.append("(name ILIKE :q OR email ILIKE :q OR phone ILIKE :q)")
+        conditions.append("(name LIKE :q OR email LIKE :q OR phone LIKE :q)")
         params["q"] = f"%{search}%"
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     rows = (await sess.execute(
@@ -167,7 +167,7 @@ async def user_detail(user_id: uuid.UUID, sess: AsyncSession = Depends(get_sessi
     )).mappings().all()
     ai_sessions = (await sess.execute(
         text(
-            "SELECT id, type, language, xp_earned, jsonb_array_length(messages) AS message_count, "
+            "SELECT id, type, language, xp_earned, JSON_LENGTH(messages) AS message_count, "
             "created_at, updated_at FROM ai_sessions WHERE user_id = :id "
             "ORDER BY created_at DESC LIMIT 20"
         ),
@@ -176,7 +176,7 @@ async def user_detail(user_id: uuid.UUID, sess: AsyncSession = Depends(get_sessi
     ai_stats = (await sess.execute(
         text(
             "SELECT COUNT(*) AS total_sessions, "
-            "COALESCE(SUM(jsonb_array_length(messages)), 0) AS total_messages, "
+            "COALESCE(SUM(JSON_LENGTH(messages)), 0) AS total_messages, "
             "COALESCE(SUM(xp_earned), 0) AS total_ai_xp "
             "FROM ai_sessions WHERE user_id = :id"
         ),
@@ -200,10 +200,13 @@ async def update_user_role(
     body: UserRoleIn,
     sess: AsyncSession = Depends(get_session),
 ):
-    row = (await sess.execute(
-        text("UPDATE users SET role = :r, updated_at = NOW() WHERE id = :id "
-             "RETURNING id, name, email, role, is_active"),
+    await sess.execute(
+        text("UPDATE users SET role = :r, updated_at = NOW() WHERE id = :id"),
         {"r": body.role, "id": user_id},
+    )
+    row = (await sess.execute(
+        text("SELECT id, name, email, role, is_active FROM users WHERE id = :id"),
+        {"id": user_id},
     )).mappings().first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -216,9 +219,12 @@ async def toggle_user_active(
     user_id: uuid.UUID,
     sess: AsyncSession = Depends(get_session),
 ):
+    await sess.execute(
+        text("UPDATE users SET is_active = NOT is_active, updated_at = NOW() WHERE id = :id"),
+        {"id": user_id},
+    )
     row = (await sess.execute(
-        text("UPDATE users SET is_active = NOT is_active, updated_at = NOW() "
-             "WHERE id = :id RETURNING id, name, email, role, is_active"),
+        text("SELECT id, name, email, role, is_active FROM users WHERE id = :id"),
         {"id": user_id},
     )).mappings().first()
     if not row:
@@ -283,14 +289,18 @@ async def create_user(
 
     import bcrypt
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
-    row = (await sess.execute(
+    new_id = str(uuid.uuid4())
+    await sess.execute(
         text(
-            "INSERT INTO users (name, email, phone, password_hash, role, country, grade_level, is_active, email_verified) "
-            "VALUES (:n, :e, :p, :h, :r, :c, :g, true, true) "
-            "RETURNING id, name, email, phone, role, is_active, created_at"
+            "INSERT INTO users (id, name, email, phone, password_hash, role, country, grade_level, is_active, email_verified) "
+            "VALUES (:id, :n, :e, :p, :h, :r, :c, :g, true, true)"
         ),
-        {"n": name, "e": email, "p": body.get("phone"), "h": pw_hash,
+        {"id": new_id, "n": name, "e": email, "p": body.get("phone"), "h": pw_hash,
          "r": role, "c": body.get("country") or "KE", "g": body.get("grade_level")},
+    )
+    row = (await sess.execute(
+        text("SELECT id, name, email, phone, role, is_active, created_at FROM users WHERE id = :id"),
+        {"id": new_id},
     )).mappings().first()
     await sess.commit()
     return {"user": dict(row)}
@@ -306,15 +316,19 @@ async def update_subscription(
     if plan not in VALID_PLANS:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid plan (valid: {', '.join(VALID_PLANS)})")
     days = int(body.get("days") or 30)
-    # asyncpg can't reuse one param as both plan_type and text — branch instead.
-    expires_expr = "NULL" if plan == "free" else "NOW() + make_interval(days => :d)"
+    # One param can't be both enum and interval count — branch instead.
+    expires_expr = "NULL" if plan == "free" else "DATE_ADD(NOW(), INTERVAL :d DAY)"
     params = {"p": plan, "id": user_id} | ({} if plan == "free" else {"d": days})
-    row = (await sess.execute(
+    await sess.execute(
         text(
             f"UPDATE users SET plan = :p, plan_expires = {expires_expr}, "  # noqa: S608 — expr is a fixed literal
-            "updated_at = NOW() WHERE id = :id RETURNING id, name, plan, plan_expires"
+            "updated_at = NOW() WHERE id = :id"
         ),
         params,
+    )
+    row = (await sess.execute(
+        text("SELECT id, name, plan, plan_expires FROM users WHERE id = :id"),
+        {"id": user_id},
     )).mappings().first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -327,9 +341,12 @@ async def cancel_subscription(
     user_id: uuid.UUID,
     sess: AsyncSession = Depends(get_session),
 ):
+    await sess.execute(
+        text("UPDATE users SET plan = 'free', plan_expires = NULL, updated_at = NOW() WHERE id = :id"),
+        {"id": user_id},
+    )
     row = (await sess.execute(
-        text("UPDATE users SET plan = 'free', plan_expires = NULL, updated_at = NOW() "
-             "WHERE id = :id RETURNING id, name, plan"),
+        text("SELECT id, name, plan FROM users WHERE id = :id"),
         {"id": user_id},
     )).mappings().first()
     if not row:
@@ -345,10 +362,13 @@ async def toggle_2fa(
     sess: AsyncSession = Depends(get_session),
 ):
     enabled = bool((body or {}).get("enabled"))
-    row = (await sess.execute(
-        text("UPDATE users SET email_verified = :v, updated_at = NOW() "
-             "WHERE id = :id RETURNING id, name, email_verified"),
+    await sess.execute(
+        text("UPDATE users SET email_verified = :v, updated_at = NOW() WHERE id = :id"),
         {"v": enabled, "id": user_id},
+    )
+    row = (await sess.execute(
+        text("SELECT id, name, email_verified FROM users WHERE id = :id"),
+        {"id": user_id},
     )).mappings().first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -370,10 +390,13 @@ async def reset_credentials(
     if not sets:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No fields to update")
     try:
-        row = (await sess.execute(
-            text(f"UPDATE users SET {', '.join(sets)}, updated_at = NOW() "  # noqa: S608 — sets built from whitelist
-                 "WHERE id = :id RETURNING id, name, email, phone"),
+        await sess.execute(
+            text(f"UPDATE users SET {', '.join(sets)}, updated_at = NOW() WHERE id = :id"),  # noqa: S608 — sets built from whitelist
             params,
+        )
+        row = (await sess.execute(
+            text("SELECT id, name, email, phone FROM users WHERE id = :id"),
+            {"id": user_id},
         )).mappings().first()
         if not row:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -396,12 +419,15 @@ async def reset_user_password(
     new_pw = (body.newPassword if body else None) or secrets.token_hex(4)
     pw_hash = bcrypt.hashpw(new_pw.encode(), bcrypt.gensalt(rounds=12)).decode()
     row = (await sess.execute(
-        text("UPDATE users SET password_hash = :h, updated_at = NOW() "
-             "WHERE id = :id RETURNING id, email"),
-        {"h": pw_hash, "id": user_id},
+        text("SELECT id, email FROM users WHERE id = :id"),
+        {"id": user_id},
     )).mappings().first()
     if not row:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    await sess.execute(
+        text("UPDATE users SET password_hash = :h, updated_at = NOW() WHERE id = :id"),
+        {"h": pw_hash, "id": user_id},
+    )
     await sess.commit()
     # Return temp password so admin can relay it (Node parity behaviour).
     return {"message": "Password reset", "tempPassword": new_pw}
@@ -490,7 +516,7 @@ async def sms_logs(
 
 @router.get("/settings", dependencies=[AdminOnly])
 async def get_settings(sess: AsyncSession = Depends(get_session)):
-    rows = (await sess.execute(text("SELECT key, value FROM admin_settings"))).mappings().all()
+    rows = (await sess.execute(text("SELECT `key`, value FROM admin_settings"))).mappings().all()
     settings_out: dict[str, str] = {}
     for r in rows:
         v = r["value"]
@@ -514,8 +540,8 @@ async def update_settings(
             continue  # unchanged masked value
         await sess.execute(
             text(
-                "INSERT INTO admin_settings (key, value, updated_at) VALUES (:k, :v, NOW()) "
-                "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
+                "INSERT INTO admin_settings (`key`, value, updated_at) VALUES (:k, :v, NOW()) "
+                "ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = NOW()"
             ),
             {"k": key, "v": str(val)},
         )

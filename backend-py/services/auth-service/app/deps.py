@@ -10,7 +10,7 @@ from elimu_common.auth import Principal, make_principal_dependency
 from elimu_common.config import get_settings
 from elimu_common.events import EventBus
 
-from app.settings import Settings
+from .settings import Settings
 
 settings: Settings = get_settings(Settings)  # type: ignore[arg-type]
 

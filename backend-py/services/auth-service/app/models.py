@@ -17,9 +17,8 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import ENUM as PgEnum
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy import Enum as PgEnum
+from elimu_common.types import GUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -30,21 +29,21 @@ class Base(DeclarativeBase):
 # Reuse the enums created by schema.sql — do not recreate them.
 UserRole = PgEnum(
     "student", "teacher", "parent", "admin", "super_admin",
-    name="user_role", create_type=False,
+    name="user_role",
 )
 PlanType = PgEnum(
     "free", "student", "teacher", "parent", "family", "school", "enterprise",
-    name="plan_type", create_type=False,  # kept in sync with billing-service / DB enum
+    name="plan_type",  # kept in sync with billing-service / DB enum
 )
-CountryCode = PgEnum("KE", "TZ", "UG", name="country_code", create_type=False)
-LanguageCode = PgEnum("en", "sw", name="language_code", create_type=False)
+CountryCode = PgEnum("KE", "TZ", "UG", name="country_code")
+LanguageCode = PgEnum("en", "sw", name="language_code")
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    school_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True)
@@ -72,8 +71,8 @@ class User(Base):
 class OtpToken(Base):
     __tablename__ = "otp_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"))
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     code: Mapped[str] = mapped_column(String(10), nullable=False)
     purpose: Mapped[str] = mapped_column(String(30), nullable=False)  # signup|login|verify_email
@@ -87,8 +86,8 @@ class OtpToken(Base):
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -97,10 +96,10 @@ class RefreshToken(Base):
 class UserSession(Base):
     __tablename__ = "user_sessions"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     token_jti: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    ip_address: Mapped[str | None] = mapped_column(INET)
+    ip_address: Mapped[str | None] = mapped_column(String(45))
     user_agent: Mapped[str | None] = mapped_column(Text)
     is_revoked: Mapped[bool] = mapped_column(Boolean, server_default="false")
     last_active: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -113,7 +112,7 @@ class School(Base):
 
     __tablename__ = "schools"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     country: Mapped[str] = mapped_column(CountryCode, nullable=False, server_default="KE")
     curriculum: Mapped[str] = mapped_column(String(50), nullable=False, server_default="CBC")
