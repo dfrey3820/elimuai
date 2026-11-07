@@ -6,7 +6,8 @@ import { translations } from "@/i18n/translations";
 import { apiPost } from "@/utils/api";
 import { setTokens, hasAuthToken } from "@/utils/auth";
 import { Spinner } from "@/components/ui";
-import { GraduationCap, Mail, Lock, ArrowLeft, Languages, AlertTriangle, Eye, EyeOff, ShieldCheck, RotateCcw } from "lucide-react";
+import { useToast } from "@/components/Toast";
+import { GraduationCap, Mail, Lock, ArrowLeft, Languages, AlertTriangle, Eye, EyeOff, ShieldCheck, RotateCcw, KeyRound } from "lucide-react";
 
 function OTPInput({ length = 6, value, onChange }) {
   const inputs = useRef([]);
@@ -39,6 +40,7 @@ function OTPInput({ length = 6, value, onChange }) {
 export default function LoginPage({ lang, setLang, onLogin }) {
   const t = (k) => translations[lang]?.[k] || translations.en[k] || k;
   const router = useRouter();
+  const toast = useToast();
 
   useEffect(() => { if (hasAuthToken()) router.replace("/dashboard"); }, [router]);
 
@@ -48,13 +50,23 @@ export default function LoginPage({ lang, setLang, onLogin }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // View state machine: "login" | "otp" | "forgot" | "reset"
+  const [mode, setMode] = useState("login");
+  const otpStep = mode === "otp";
+
   // OTP state
-  const [otpStep, setOtpStep] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [otpPurpose, setOtpPurpose] = useState("login");
   const [otpEmail, setOtpEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Password reset state
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPwd, setShowNewPwd] = useState(false);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -69,12 +81,14 @@ export default function LoginPage({ lang, setLang, onLogin }) {
     setError("");
     try {
       const data = await apiPost("/api/auth/login", { identifier: email.trim(), password });
-      if (data?.requiresOTP) {
-        setOtpStep(true);
-        setOtpPurpose(data.purpose);
+      if (data?.requiresOTP || data?.email) {
+        setMode("otp");
+        setOtpPurpose(data.purpose || "login");
         setOtpEmail(data.email);
         setUserName(data.userName || "");
+        setOtpCode("");
         setResendCooldown(60);
+        toast.info(lang === "sw" ? "Tumetuma msimbo wa uthibitisho." : "We sent you a verification code.");
         return;
       }
       // Fallback: direct login (shouldn't happen with OTP enabled)
@@ -82,7 +96,9 @@ export default function LoginPage({ lang, setLang, onLogin }) {
       if (onLogin) onLogin(data?.user, data);
       router.push("/dashboard");
     } catch (err) {
-      setError(err?.message || (lang === "sw" ? "Imeshindwa kuingia" : "Login failed"));
+      const msg = err?.message || (lang === "sw" ? "Imeshindwa kuingia" : "Login failed");
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -96,11 +112,14 @@ export default function LoginPage({ lang, setLang, onLogin }) {
       const data = await apiPost("/api/auth/verify-otp", { email: otpEmail, code: otpCode, purpose: otpPurpose });
       if (data?.verified && data?.accessToken) {
         setTokens(data);
+        toast.success(lang === "sw" ? "Umeingia!" : "Signed in successfully!");
         if (onLogin) onLogin(data?.user, data);
         router.push("/dashboard");
       }
     } catch (err) {
-      setError(err?.message || (lang === "sw" ? "Msimbo si sahihi" : "Invalid code"));
+      const msg = err?.message || (lang === "sw" ? "Msimbo si sahihi" : "Invalid code");
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -113,8 +132,84 @@ export default function LoginPage({ lang, setLang, onLogin }) {
       await apiPost("/api/auth/resend-otp", { email: otpEmail, purpose: otpPurpose });
       setResendCooldown(60);
       setOtpCode("");
+      toast.info(lang === "sw" ? "Msimbo mpya umetumwa." : "A new code has been sent.");
     } catch (err) {
-      setError(err?.message || "Failed to resend");
+      const msg = err?.message || (lang === "sw" ? "Imeshindwa kutuma tena" : "Failed to resend");
+      setError(msg);
+      toast.error(msg);
+    }
+  };
+
+  const openForgot = () => {
+    setError("");
+    setForgotEmail(email.trim());
+    setMode("forgot");
+  };
+
+  const handleForgot = async () => {
+    const addr = forgotEmail.trim();
+    if (!addr || !/^\S+@\S+\.\S+$/.test(addr)) {
+      setError(lang === "sw" ? "Ingiza barua pepe sahihi." : "Please enter a valid email address.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await apiPost("/api/auth/forgot-password", { email: addr });
+      setMode("reset");
+      setResetCode("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setResendCooldown(60);
+      toast.success(
+        lang === "sw"
+          ? "Kama akaunti ipo, msimbo wa kuweka upya umetumwa kwa barua pepe."
+          : "If an account exists, a reset code has been emailed to you."
+      );
+    } catch (err) {
+      const msg = err?.message || (lang === "sw" ? "Imeshindwa" : "Something went wrong. Please try again.");
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (resetCode.length < 6) { setError(lang === "sw" ? "Ingiza msimbo kamili." : "Please enter the full 6-digit code."); return; }
+    if (newPassword.length < 8) { setError(lang === "sw" ? "Nenosiri liwe na herufi 8 au zaidi." : "Password must be at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setError(lang === "sw" ? "Manenosiri hayalingani." : "Passwords do not match."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      await apiPost("/api/auth/reset-password", { email: forgotEmail.trim(), code: resetCode, new_password: newPassword });
+      toast.success(lang === "sw" ? "Nenosiri limewekwa upya. Tafadhali ingia." : "Password updated. Please sign in.");
+      setMode("login");
+      setPassword("");
+      setResetCode("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      const msg = err?.message || (lang === "sw" ? "Imeshindwa kuweka upya nenosiri" : "Could not reset password. Please try again.");
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendReset = async () => {
+    if (resendCooldown > 0) return;
+    setError("");
+    try {
+      await apiPost("/api/auth/forgot-password", { email: forgotEmail.trim() });
+      setResendCooldown(60);
+      setResetCode("");
+      toast.info(lang === "sw" ? "Msimbo mpya umetumwa." : "A new code has been sent.");
+    } catch (err) {
+      const msg = err?.message || (lang === "sw" ? "Imeshindwa kutuma tena" : "Failed to resend");
+      setError(msg);
+      toast.error(msg);
     }
   };
 
@@ -151,7 +246,7 @@ export default function LoginPage({ lang, setLang, onLogin }) {
         </div>
 
         <div className="max-w-[420px] w-full mx-auto">
-          {!otpStep ? (
+          {mode === "login" ? (
             <>
               <h2 className="text-slate-900 text-[28px] font-heading font-black mb-2">
                 {lang === "sw" ? "Karibu Tena!" : "Welcome Back!"}
@@ -184,6 +279,11 @@ export default function LoginPage({ lang, setLang, onLogin }) {
                     {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
+                <div className="text-right mt-2">
+                  <button type="button" onClick={openForgot} className="bg-transparent border-none cursor-pointer text-purple-600 text-[13px] font-body font-extrabold p-0">
+                    {lang === "sw" ? "Umesahau nenosiri?" : "Forgot password?"}
+                  </button>
+                </div>
               </div>
 
               {error && (
@@ -196,7 +296,7 @@ export default function LoginPage({ lang, setLang, onLogin }) {
                 {loading ? <Spinner color="#fff" size={6} /> : (lang === "sw" ? "Ingia" : "Sign In")}
               </button>
             </>
-          ) : (
+          ) : mode === "otp" ? (
             /* OTP Verification Step */
             <>
               <div className="text-center mb-8">
@@ -234,14 +334,123 @@ export default function LoginPage({ lang, setLang, onLogin }) {
                 </button>
               </div>
 
-              <button onClick={() => { setOtpStep(false); setOtpCode(""); setError(""); }}
+              <button onClick={() => { setMode("login"); setOtpCode(""); setError(""); }}
+                className="w-full mt-4 py-2.5 rounded-[14px] border-2 border-slate-200 bg-transparent text-slate-500 text-sm font-body font-bold cursor-pointer flex items-center justify-center gap-1">
+                <ArrowLeft size={14} /> {lang === "sw" ? "Rudi" : "Back to Login"}
+              </button>
+            </>
+          ) : mode === "forgot" ? (
+            /* Forgot Password — request reset code */
+            <>
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 rounded-full bg-purple-600 flex items-center justify-center mx-auto mb-4">
+                  <KeyRound size={30} color="#fff" />
+                </div>
+                <h2 className="text-slate-900 text-[26px] font-heading font-black mb-2">
+                  {lang === "sw" ? "Umesahau Nenosiri?" : "Forgot Password?"}
+                </h2>
+                <p className="text-slate-500 text-sm font-body">
+                  {lang === "sw" ? "Ingiza barua pepe yako na tutakutumia msimbo wa kuweka upya." : "Enter your email and we'll send you a reset code."}
+                </p>
+              </div>
+
+              <div className="mb-5">
+                <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2">
+                  <Mail size={15} /> {lang === "sw" ? "Barua Pepe" : "Email"}
+                </label>
+                <input type="email" value={forgotEmail} onChange={(e) => { setForgotEmail(e.target.value); setError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleForgot()}
+                  placeholder="you@example.com"
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-[14px] px-4 py-3.5 text-slate-900 text-base font-body font-semibold outline-none transition-colors duration-200 focus:border-purple-600" />
+              </div>
+
+              {error && (
+                <p className="text-red-500 text-[13px] font-body font-bold mb-4 px-3.5 py-2.5 bg-rose-50 rounded-xl flex items-center gap-2">
+                  <AlertTriangle size={16} /> {error}
+                </p>
+              )}
+
+              <button onClick={handleForgot} disabled={loading}
+                className={`w-full py-[15px] rounded-[14px] border-none cursor-pointer bg-gradient-primary text-white text-base font-body font-extrabold shadow-[0_4px_14px_rgba(37,99,235,0.25)] ${loading ? "opacity-70 cursor-not-allowed" : ""}`}>
+                {loading ? <Spinner color="#fff" size={6} /> : (lang === "sw" ? "Tuma Msimbo" : "Send Reset Code")}
+              </button>
+
+              <button onClick={() => { setMode("login"); setError(""); }}
+                className="w-full mt-4 py-2.5 rounded-[14px] border-2 border-slate-200 bg-transparent text-slate-500 text-sm font-body font-bold cursor-pointer flex items-center justify-center gap-1">
+                <ArrowLeft size={14} /> {lang === "sw" ? "Rudi" : "Back to Login"}
+              </button>
+            </>
+          ) : (
+            /* Reset Password — enter code + new password */
+            <>
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 rounded-full bg-purple-600 flex items-center justify-center mx-auto mb-4">
+                  <Lock size={30} color="#fff" />
+                </div>
+                <h2 className="text-slate-900 text-[26px] font-heading font-black mb-2">
+                  {lang === "sw" ? "Weka Nenosiri Jipya" : "Set a New Password"}
+                </h2>
+                <p className="text-slate-500 text-sm font-body">
+                  {lang === "sw" ? "Ingiza msimbo wa tarakimu 6 uliotumwa kwa" : "Enter the 6-digit code sent to"}
+                </p>
+                <p className="text-purple-600 text-sm font-body font-extrabold mt-1">{forgotEmail}</p>
+              </div>
+
+              <OTPInput value={resetCode} onChange={(v) => { setResetCode(v); setError(""); }} />
+
+              <div className="mb-5 mt-6">
+                <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2">
+                  <Lock size={15} /> {lang === "sw" ? "Nenosiri Jipya" : "New Password"}
+                </label>
+                <div className="relative">
+                  <input type={showNewPwd ? "text" : "password"} value={newPassword}
+                    onChange={(e) => { setNewPassword(e.target.value); setError(""); }}
+                    placeholder="••••••••"
+                    className="w-full bg-slate-50 border-2 border-slate-200 rounded-[14px] px-4 py-3.5 pr-12 text-slate-900 text-base font-body font-semibold outline-none transition-colors duration-200 focus:border-purple-600" />
+                  <button onClick={() => setShowNewPwd(!showNewPwd)} type="button" className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-transparent border-none cursor-pointer text-slate-400 p-0">
+                    {showNewPwd ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mb-5">
+                <label className="flex items-center gap-1.5 text-slate-600 text-[13px] font-body font-bold mb-2">
+                  <Lock size={15} /> {lang === "sw" ? "Thibitisha Nenosiri" : "Confirm Password"}
+                </label>
+                <input type={showNewPwd ? "text" : "password"} value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); setError(""); }}
+                  onKeyDown={(e) => e.key === "Enter" && handleResetPassword()}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-[14px] px-4 py-3.5 text-slate-900 text-base font-body font-semibold outline-none transition-colors duration-200 focus:border-purple-600" />
+              </div>
+
+              {error && (
+                <p className="text-red-500 text-[13px] font-body font-bold mb-4 px-3.5 py-2.5 bg-rose-50 rounded-xl flex items-center gap-2">
+                  <AlertTriangle size={16} /> {error}
+                </p>
+              )}
+
+              <button onClick={handleResetPassword} disabled={loading || resetCode.length < 6}
+                className={`w-full py-[15px] rounded-[14px] border-none cursor-pointer bg-gradient-primary text-white text-base font-body font-extrabold shadow-[0_4px_14px_rgba(37,99,235,0.25)] ${(loading || resetCode.length < 6) ? "opacity-60 cursor-not-allowed" : ""}`}>
+                {loading ? <Spinner color="#fff" size={6} /> : (lang === "sw" ? "Weka Upya Nenosiri" : "Reset Password")}
+              </button>
+
+              <div className="text-center mt-5">
+                <p className="text-slate-400 text-xs font-body mb-2">{lang === "sw" ? "Hukupokea msimbo?" : "Didn't receive the code?"}</p>
+                <button onClick={handleResendReset} disabled={resendCooldown > 0}
+                  className={`bg-transparent border-none text-sm font-body font-extrabold cursor-pointer inline-flex items-center gap-1 ${resendCooldown > 0 ? "text-slate-300 cursor-not-allowed" : "text-purple-600"}`}>
+                  <RotateCcw size={14} /> {resendCooldown > 0 ? `${lang === "sw" ? "Tuma tena" : "Resend"} (${resendCooldown}s)` : (lang === "sw" ? "Tuma Tena" : "Resend Code")}
+                </button>
+              </div>
+
+              <button onClick={() => { setMode("login"); setError(""); }}
                 className="w-full mt-4 py-2.5 rounded-[14px] border-2 border-slate-200 bg-transparent text-slate-500 text-sm font-body font-bold cursor-pointer flex items-center justify-center gap-1">
                 <ArrowLeft size={14} /> {lang === "sw" ? "Rudi" : "Back to Login"}
               </button>
             </>
           )}
 
-          {!otpStep && (
+          {mode === "login" && (
             <>
               <div className="flex items-center gap-3 my-7">
                 <div className="flex-1 h-px bg-slate-200" />
