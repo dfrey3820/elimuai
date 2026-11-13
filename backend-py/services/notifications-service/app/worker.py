@@ -73,6 +73,7 @@ TOPICS = (
     "billing.reminder_free",
     "billing.reminder_expiring",
     "billing.reminder_renewal",
+    "billing.agent_customer_expiring",
 )
 
 
@@ -326,6 +327,29 @@ def _reminder_renewal_html(*, name: str, plan: str, plan_expires: str | None,
 
 
 # ─── Event router ───────────────────────────────────────────────────────────
+def _agent_customer_expiring_html(*, recipient_name: str, customer_name: str, customer_email: str,
+                                  plan: str, days_left: int | None) -> str:
+    when = (
+        f"in {days_left} day{'s' if (days_left or 0) != 1 else ''}"
+        if isinstance(days_left, int) else "soon"
+    )
+    return f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:24px">
+      <h1 style="color:#6B3FA0">Your customer's plan expires {when}</h1>
+      <p>Hi {recipient_name or 'there'},</p>
+      <p>One of the customers you brought to ElimuAI is about to expire. Reach out and help
+         them renew so you keep earning on their subscription.</p>
+      <div style="background:#f8fafc;padding:16px;border-radius:8px;margin:16px 0">
+        <p><strong>Customer:</strong> {customer_name}</p>
+        <p><strong>Email:</strong> {customer_email}</p>
+        <p><strong>Plan:</strong> {plan}</p>
+        <p><strong>Expires:</strong> {when}</p>
+      </div>
+      <p style="color:#64748b;font-size:12px">You're receiving this because this customer is tied to your network account.</p>
+    </div>
+    """
+
+
 async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> None:
     if not payload:
         log.warning("empty_payload", topic=topic)
@@ -433,6 +457,27 @@ async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> Non
                     billing_cycle=payload.get("billing_cycle") or "monthly",
                     renew_link=payload.get("renew_link"),
                     kind="trial" if is_trial else "renewal",
+                ),
+            )
+
+    elif topic == "billing.agent_customer_expiring":
+        email = payload.get("email")
+        if email:
+            days_left = payload.get("days_left")
+            subject = (
+                f"Your customer's ElimuAI plan expires in {days_left} day"
+                f"{'s' if (days_left or 0) != 1 else ''}"
+                if isinstance(days_left, int)
+                else "Your customer's ElimuAI plan is expiring soon"
+            )
+            await send_email(
+                settings, email, subject,
+                _agent_customer_expiring_html(
+                    recipient_name=payload.get("recipient_name") or "there",
+                    customer_name=payload.get("customer_name") or "your customer",
+                    customer_email=payload.get("customer_email") or "",
+                    plan=payload.get("plan") or "plan",
+                    days_left=days_left if isinstance(days_left, int) else None,
                 ),
             )
 

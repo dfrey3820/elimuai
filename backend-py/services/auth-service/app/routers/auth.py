@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,7 @@ from ..otp import send_otp, verify_otp
 from ..schemas import (
     ChangePasswordIn,
     DeleteAccountIn,
+    ForceResetPasswordIn,
     ForgotPasswordIn,
     LoginIn,
     LoginOtpChallengeOut,
@@ -229,6 +230,26 @@ async def register(
         raise HTTPException(409, "Email or phone already registered") from exc
 
     await session.refresh(user)
+
+    # ─── Network-agent referral attribution ─────────────────────────────────
+    # If the signup carried a valid agent code, link the new user to that agent
+    # so the fn_award_agent_commission trigger credits them on first payment.
+    if body.ref_code and body.ref_code.strip():
+        code = body.ref_code.strip().upper()
+        agent_id = (await session.execute(
+            text("SELECT id FROM marketing_agents WHERE agent_code = :c AND is_active = 1 LIMIT 1"),
+            {"c": code},
+        )).scalar_one_or_none()
+        if agent_id:
+            await session.execute(
+                text(
+                    "INSERT IGNORE INTO agent_referrals (id, agent_id, user_id, source) "
+                    "VALUES (:id, :a, :u, 'link')"
+                ),
+                {"id": str(uuid_mod.uuid4()), "a": agent_id, "u": str(user.id)},
+            )
+            await session.commit()
+            log.info("agent.referral.linked", user_id=str(user.id), agent_code=code)
 
     # ─── Send OTP ───────────────────────────────────────────────────────────
     async def _dispatcher(email: str, code: str, purpose: str) -> bool:
@@ -562,9 +583,34 @@ async def change_password(
     if not user.password_hash or not verify_password(body.current_password, user.password_hash):
         raise HTTPException(401, "Current password is incorrect")
     user.password_hash = hash_password(body.new_password)
+    user.must_reset_password = False
     user.updated_at = datetime.utcnow()
     await session.commit()
     return {"message": "Password changed successfully"}
+
+
+# ─── POST /force-reset-password ───────────────────────────────────────────────
+# First-login reset for accounts issued temporary credentials (agents/managers
+# created by a super admin). Authenticated by the session JWT; allowed only while
+# must_reset_password is set, so no current password is required.
+
+@router.post("/force-reset-password")
+async def force_reset_password(
+    body: ForceResetPasswordIn,
+    principal: Principal = Depends(current_principal),
+    session: AsyncSession = Depends(get_session),
+):
+    user = await session.scalar(select(User).where(User.id == principal.user_id))
+    if user is None:
+        raise HTTPException(404, "User not found")
+    if not user.must_reset_password:
+        raise HTTPException(400, "No password reset is required for this account")
+    user.password_hash = hash_password(body.new_password)
+    user.must_reset_password = False
+    user.updated_at = datetime.utcnow()
+    await session.commit()
+    log.info("password.force_reset", user_id=str(user.id))
+    return {"message": "Password set successfully"}
 
 
 # ─── DELETE /account ─────────────────────────────────────────────────────────

@@ -20,6 +20,8 @@ import ProgressScreen from "@/screens/ProgressScreen";
 import PlansScreen from "@/screens/PlansScreen";
 import BillingScreen from "@/screens/BillingScreen";
 import SchoolAdmin from "@/screens/SchoolAdmin";
+import AgentDashboard from "@/screens/AgentDashboard";
+import ForcePasswordReset from "@/screens/ForcePasswordReset";
 
 const SettingsIcon = Settings;
 
@@ -130,6 +132,14 @@ export default function ElimuAI() {
     apiGet("/api/users/profile").then((d) => { if (d?.user) setUser(d.user); }).catch(() => {});
     apiGet("/api/payments/subscription-status").then((d) => setSubStatus(d || null)).catch(() => {});
   };
+
+  const handleResetDone = () => {
+    apiGet("/api/users/profile").then((d) => { if (d?.user) setUser(d.user); }).catch(() => {});
+  };
+
+  if (user?.must_reset_password) return <ForcePasswordReset user={user} onDone={handleResetDone} onLogout={handleLogout} />;
+
+  if (role === "marketing_agent") return <AgentDashboard user={user} onLogout={handleLogout} />;
 
   if (mustPay) return <BillingScreen user={user} lang={lang} onPaid={handlePaymentDone} />;
 

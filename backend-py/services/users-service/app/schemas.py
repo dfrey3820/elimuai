@@ -27,6 +27,7 @@ class UserOut(BaseModel):
     total_xp: int = 0
     school_id: uuid.UUID | None = None
     trial_expires: datetime | None = None
+    must_reset_password: bool = False
 
 
 class ProfilePatchIn(BaseModel):

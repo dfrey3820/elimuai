@@ -28,6 +28,9 @@ class RegisterIn(BaseModel):
     curriculum: str | None = "CBC"
     school_name: str | None = None
     signup_token: str | None = None  # required when SCHOOL_SIGNUP_TOKEN is set and role=admin
+    # Network-agent referral code (marketing_agents.agent_code). When valid, the
+    # new user is attributed to that agent so first-payment commissions accrue.
+    ref_code: str | None = Field(default=None, max_length=50)
 
 
 class UserOut(BaseModel):
@@ -46,6 +49,7 @@ class UserOut(BaseModel):
     total_xp: int = 0
     streak_days: int = 0
     trial_expires: datetime | None = None
+    must_reset_password: bool = False
 
     class Config:
         from_attributes = True
@@ -107,6 +111,17 @@ class LogoutIn(BaseModel):
 class ChangePasswordIn(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
+
+
+class ForceResetPasswordIn(BaseModel):
+    new_password: str = Field(min_length=8, max_length=72)
+
+    @field_validator("new_password")
+    @classmethod
+    def _validate_bytes(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("Password must be at most 72 UTF-8 bytes")
+        return value
 
 
 class ForgotPasswordIn(BaseModel):

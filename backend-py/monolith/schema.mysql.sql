@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
   email           VARCHAR(255),
   phone           VARCHAR(20),
   password_hash   VARCHAR(255),
+  must_reset_password BOOLEAN NOT NULL DEFAULT FALSE,
   role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent') NOT NULL DEFAULT 'student',
   plan            ENUM('free','student','teacher','parent','family','school','enterprise') NOT NULL DEFAULT 'free',
   plan_expires    DATETIME,
@@ -654,7 +655,10 @@ CREATE TABLE IF NOT EXISTS marketing_agents (
   id                 CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
   user_id            CHAR(36) NOT NULL,
   agent_code         VARCHAR(32) NOT NULL,
+  tier               VARCHAR(16) NOT NULL DEFAULT 'agent',
+  manager_id         CHAR(36) NULL,
   commission_rate    DECIMAL(5,4) NOT NULL DEFAULT 0.15 CHECK (commission_rate >= 0 AND commission_rate <= 1),
+  override_rate      DECIMAL(5,4) NOT NULL DEFAULT 0.0500 CHECK (override_rate >= 0 AND override_rate <= 1),
   is_active          BOOLEAN NOT NULL DEFAULT TRUE,
   payout_method      VARCHAR(32),
   payout_details     JSON NOT NULL DEFAULT (JSON_OBJECT()),
@@ -664,7 +668,9 @@ CREATE TABLE IF NOT EXISTS marketing_agents (
   UNIQUE KEY uq_marketing_agents_user (user_id),
   UNIQUE KEY uq_marketing_agents_code (agent_code),
   KEY idx_marketing_agents_active (is_active),
-  CONSTRAINT fk_marketing_agents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  KEY idx_marketing_agents_manager (manager_id),
+  CONSTRAINT fk_marketing_agents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_marketing_agents_manager FOREIGN KEY (manager_id) REFERENCES marketing_agents(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS agent_referrals (
@@ -690,12 +696,13 @@ CREATE TABLE IF NOT EXISTS agent_commissions (
   commission_amount  DECIMAL(12,2) NOT NULL,
   currency           VARCHAR(5) NOT NULL DEFAULT 'KES',
   status             VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','void')),
+  kind               VARCHAR(16) NOT NULL DEFAULT 'direct',
   paid_at            DATETIME,
   paid_by            CHAR(36),
   payout_reference   VARCHAR(120),
   notes              TEXT,
   created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_agent_commissions_referral (referral_id),
+  UNIQUE KEY uq_agent_commissions_referral_agent (referral_id, agent_id),
   KEY idx_agent_commissions_agent_status (agent_id, status),
   KEY idx_agent_commissions_user (user_id),
   CONSTRAINT fk_agent_commissions_agent    FOREIGN KEY (agent_id)    REFERENCES marketing_agents(id) ON DELETE CASCADE,
@@ -838,15 +845,29 @@ BEGIN
   IF NEW.status = 'completed' THEN
     INSERT IGNORE INTO agent_commissions (
       id, agent_id, referral_id, user_id, payment_id,
-      base_amount, commission_rate, commission_amount, currency, status
+      base_amount, commission_rate, commission_amount, currency, status, kind
     )
     SELECT
       UUID(), ar.agent_id, ar.id, NEW.user_id, NEW.id,
       NEW.amount, ma.commission_rate, ROUND(NEW.amount * ma.commission_rate, 2),
-      COALESCE(NEW.currency, 'KES'), 'pending'
+      COALESCE(NEW.currency, 'KES'), 'pending', 'direct'
     FROM agent_referrals ar
     JOIN marketing_agents ma ON ma.id = ar.agent_id
     WHERE ar.user_id = NEW.user_id AND ma.is_active = TRUE
+    LIMIT 1;
+
+    INSERT IGNORE INTO agent_commissions (
+      id, agent_id, referral_id, user_id, payment_id,
+      base_amount, commission_rate, commission_amount, currency, status, kind
+    )
+    SELECT
+      UUID(), mgr.id, ar.id, NEW.user_id, NEW.id,
+      NEW.amount, mgr.override_rate, ROUND(NEW.amount * mgr.override_rate, 2),
+      COALESCE(NEW.currency, 'KES'), 'pending', 'override'
+    FROM agent_referrals ar
+    JOIN marketing_agents ma  ON ma.id = ar.agent_id
+    JOIN marketing_agents mgr ON mgr.id = ma.manager_id
+    WHERE ar.user_id = NEW.user_id AND ma.is_active = TRUE AND mgr.is_active = TRUE
     LIMIT 1;
   END IF;
 END$$
@@ -858,15 +879,29 @@ BEGIN
   IF NEW.status = 'completed' AND OLD.status <> 'completed' THEN
     INSERT IGNORE INTO agent_commissions (
       id, agent_id, referral_id, user_id, payment_id,
-      base_amount, commission_rate, commission_amount, currency, status
+      base_amount, commission_rate, commission_amount, currency, status, kind
     )
     SELECT
       UUID(), ar.agent_id, ar.id, NEW.user_id, NEW.id,
       NEW.amount, ma.commission_rate, ROUND(NEW.amount * ma.commission_rate, 2),
-      COALESCE(NEW.currency, 'KES'), 'pending'
+      COALESCE(NEW.currency, 'KES'), 'pending', 'direct'
     FROM agent_referrals ar
     JOIN marketing_agents ma ON ma.id = ar.agent_id
     WHERE ar.user_id = NEW.user_id AND ma.is_active = TRUE
+    LIMIT 1;
+
+    INSERT IGNORE INTO agent_commissions (
+      id, agent_id, referral_id, user_id, payment_id,
+      base_amount, commission_rate, commission_amount, currency, status, kind
+    )
+    SELECT
+      UUID(), mgr.id, ar.id, NEW.user_id, NEW.id,
+      NEW.amount, mgr.override_rate, ROUND(NEW.amount * mgr.override_rate, 2),
+      COALESCE(NEW.currency, 'KES'), 'pending', 'override'
+    FROM agent_referrals ar
+    JOIN marketing_agents ma  ON ma.id = ar.agent_id
+    JOIN marketing_agents mgr ON mgr.id = ma.manager_id
+    WHERE ar.user_id = NEW.user_id AND ma.is_active = TRUE AND mgr.is_active = TRUE
     LIMIT 1;
   END IF;
 END$$

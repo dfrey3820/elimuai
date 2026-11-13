@@ -70,6 +70,19 @@ export default function RegisterPage({ lang, setLang, onLogin }) {
   const [otpEmail, setOtpEmail] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  // Network-agent referral code from ?ref=CODE (or ?agent=CODE), persisted so it
+  // survives the OTP step. Attributes the signup to the referring agent.
+  const [refCode, setRefCode] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = (params.get("ref") || params.get("agent") || "").trim().toUpperCase();
+    const stored = (window.localStorage.getItem("elimu_agent_ref") || "").trim().toUpperCase();
+    const code = fromUrl || stored;
+    if (fromUrl) { try { window.localStorage.setItem("elimu_agent_ref", fromUrl); } catch { /* storage unavailable */ } }
+    if (code) setRefCode(code);
+  }, []);
+
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
@@ -92,6 +105,7 @@ export default function RegisterPage({ lang, setLang, onLogin }) {
     try {
       const body = { name: name.trim(), email: email.trim(), password, role, country };
       if (role === "admin" && schoolName.trim()) body.school_name = schoolName.trim();
+      if (refCode) body.ref_code = refCode;
       const data = await apiPost("/api/auth/register", body);
 
       if (data?.requiresOTP) {

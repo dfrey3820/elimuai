@@ -35,6 +35,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
     phone: Mapped[str | None] = mapped_column(String(20), unique=True)
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    must_reset_password: Mapped[bool] = mapped_column(Boolean, server_default="false")
     role: Mapped[str] = mapped_column(UserRole, nullable=False, server_default="student")
     plan: Mapped[str] = mapped_column(PlanType, nullable=False, server_default="free")
     plan_expires: Mapped[datetime | None] = mapped_column(DateTime)

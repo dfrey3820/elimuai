@@ -71,6 +71,35 @@ _EXPIRING_SQL = text(
     """
 )
 
+# Agent CC: any subscriber referred by a network agent whose paid plan is
+# expiring within :days. We notify the referring agent (and their manager) so
+# they can nudge their own customer. Idempotent per (user, expiry date).
+_AGENT_EXPIRING_SQL = text(
+    """
+    SELECT u.id AS customer_id, u.name AS customer_name, u.email AS customer_email,
+           u.plan, u.plan_expires,
+           au.name AS agent_name, au.email AS agent_email,
+           mu.name AS manager_name, mu.email AS manager_email
+    FROM users u
+    JOIN agent_referrals ar      ON ar.user_id = u.id
+    JOIN marketing_agents ma     ON ma.id = ar.agent_id AND ma.is_active = true
+    JOIN users au                ON au.id = ma.user_id
+    LEFT JOIN marketing_agents mm ON mm.id = ma.manager_id AND mm.is_active = true
+    LEFT JOIN users mu            ON mu.id = mm.user_id
+    WHERE u.plan <> 'free'
+      AND u.is_active = true
+      AND u.plan_expires IS NOT NULL
+      AND u.plan_expires >= NOW()
+      AND u.plan_expires <= NOW() + INTERVAL :days DAY
+      AND NOT EXISTS (
+        SELECT 1 FROM subscription_reminders r
+        WHERE r.user_id = u.id
+          AND r.kind = 'agent_expiring'
+          AND r.reference = DATE(u.plan_expires)
+      )
+    """
+)
+
 # Lapsed: paid plan already expired and not renewed (a renewal moves
 # plan_expires into the future, disqualifying the row). Any role — personal
 # subscriptions belong to students/parents/teachers too. Capped at
@@ -197,7 +226,7 @@ async def run_once(app) -> dict[str, int]:
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
-    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0, "trial_invoice": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "agent_expiring": 0, "renewal_invoice": 0, "trial_invoice": 0}
 
     async for sess in app.state.db.session():
         got_lock = (await sess.execute(
@@ -217,7 +246,7 @@ async def run_once(app) -> dict[str, int]:
 
 
 async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
-    counts = {"free_upgrade": 0, "expiring_soon": 0, "renewal_invoice": 0, "trial_invoice": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "agent_expiring": 0, "renewal_invoice": 0, "trial_invoice": 0}
     if True:  # keep original body indentation
         # ── Free-plan admins ─────────────────────────────────────────────
         rows = (await sess.execute(
@@ -263,6 +292,37 @@ async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
                 sess, r["id"], "expiring_soon", reference=expires_at.date(),
             )
             counts["expiring_soon"] += 1
+
+        # ── Agent CC: notify the referring agent/manager of expiring customers ─
+        rows = (await sess.execute(
+            _AGENT_EXPIRING_SQL, {"days": settings.reminders_expiring_days},
+        )).mappings().all()
+        for r in rows:
+            expires_at = r["plan_expires"]
+            days_left = None
+            try:
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc) if expires_at.tzinfo else datetime.utcnow()
+                days_left = max(0, (expires_at - now).days)
+            except Exception:  # noqa: BLE001
+                pass
+            for role_label, recipient in (("agent", r["agent_email"]), ("manager", r["manager_email"])):
+                if not recipient:
+                    continue
+                await bus.publish("billing.agent_customer_expiring", {
+                    "email": recipient,
+                    "recipient_role": role_label,
+                    "recipient_name": r["agent_name"] if role_label == "agent" else r["manager_name"],
+                    "customer_name": r["customer_name"],
+                    "customer_email": r["customer_email"],
+                    "plan": r["plan"],
+                    "plan_expires": expires_at.isoformat() if expires_at else None,
+                    "days_left": days_left,
+                })
+            await _record_sent(
+                sess, r["customer_id"], "agent_expiring", reference=expires_at.date(),
+            )
+            counts["agent_expiring"] += 1
 
         # ── Lapsed subscribers: renewal invoice, 3 sends over a week ─────
         rows = (await sess.execute(

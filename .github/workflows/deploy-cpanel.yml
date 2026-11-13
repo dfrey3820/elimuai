@@ -121,6 +121,13 @@ jobs:
             --exclude 'docker-compose.yml' \
             backend-py/ cpanel:$API_DIR/
 
+      - name: Apply DB migrations
+        # Schema changes (e.g. new columns the ORM reads) must land before
+        # Passenger loads the new code. Idempotent; aborts the deploy (before
+        # restart) if it fails, so prod keeps serving the previous version.
+        run: |
+          ssh cpanel "set -e; cd $API_DIR && bash scripts/apply-migrations.sh"
+
       - name: Rsync frontend
         # public_html is shared with other sites, so it never gets a blanket
         # --delete: files are only added/updated, and only the hashed _next/
