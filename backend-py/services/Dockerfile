@@ -17,7 +17,9 @@ ENV SERVICE_DIR=/app \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# apt-get upgrade pulls Debian security fixes for base-image packages (e.g. zlib1g)
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
         curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
