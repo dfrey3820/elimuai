@@ -18,8 +18,9 @@ jobs:
           - admin-service
           - notifications-service
     env:
-      # Dummy values — unit tests never reach a real DB.
-      DATABASE_URL: postgresql+asyncpg://ci:ci@localhost:5432/ci
+      # Dummy values — unit tests never reach a real DB. aiomysql ships with
+      # elimu-common; asyncpg is not installed, so use the mysql driver here.
+      DATABASE_URL: mysql+aiomysql://ci:ci@localhost:3306/ci
       JWT_SECRET: ci-only-0123456789abcdef0123456789abcdef
     steps:
       - uses: actions/checkout@v4
