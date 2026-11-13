@@ -29,12 +29,10 @@ export default function ProgressScreen({ country, level, lang, user }) {
   const [openLesson, setOpenLesson] = useState(null);
   useEffect(() => { let alive = true; if (!hasAuthToken()) return; apiGet("/api/progress/summary").then((d) => { if (alive) setSummary(d); }).catch(() => {}); return () => { alive = false; }; }, [user?.id]);
   useEffect(() => { let alive = true; apiGet("/api/curriculum/offline-lessons", { level, curriculum, lang }).then((d) => { if (alive) setOfflineLessons(d?.lessons || []); }).catch(() => {}); return () => { alive = false; }; }, [level, curriculum, lang]);
-  const subjects = summary?.subjects?.length
-    ? summary.subjects.map((s) => ({ name: s.name, score: Math.round(s.avg_score || 0), color: C.primary }))
-    : [{ name: "Mathematics", score: 78, color: C.primary }, { name: "English", score: 85, color: C.accent }, { name: "Science", score: 62, color: C.secondary }, { name: "History", score: 90, color: C.gold }];
-  const streakVal = summary?.streak ?? 7;
-  const weekMins = summary?.weekMins ?? 320;
-  const testsTaken = summary?.recentActivity?.filter((a) => a.activity_type?.includes("exam")).length ?? 12;
+  const subjects = (summary?.subjects || []).map((s) => ({ name: s.name, score: Math.round(Number(s.avg_score) || 0), color: C.primary }));
+  const streakVal = summary?.streak ?? 0;
+  const weekMins = summary?.week_mins ?? 0;
+  const testsTaken = (summary?.recent_activity || []).filter((a) => a.activity_type?.includes("exam")).length;
   return (
     <div className="px-[18px] pt-[22px] pb-[100px]">
       <h2 className="text-slate-900 text-[22px] mb-1 mt-0 font-heading font-black flex items-center gap-2"><BarChart3 size={22} className="text-purple-600" /> {t("my_progress")}</h2>

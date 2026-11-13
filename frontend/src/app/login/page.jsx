@@ -4,10 +4,10 @@ import CookieConsent from "@/components/CookieConsent";
 import { useApp } from "@/context/AppContext";
 
 export default function Login() {
-  const { lang, handleAuthSuccess } = useApp();
+  const { lang, setLang, handleAuthSuccess } = useApp();
   return (
     <>
-      <LoginPage lang={lang} onAuthSuccess={handleAuthSuccess} />
+      <LoginPage lang={lang} setLang={setLang} onLogin={handleAuthSuccess} />
       <CookieConsent />
     </>
   );

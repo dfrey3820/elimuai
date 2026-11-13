@@ -10,6 +10,7 @@ fallback. When called from tests without a gateway, (1) is used.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -61,13 +62,19 @@ def _extract_bearer(request: Request) -> str | None:
 def make_principal_dependency(secret: str):
     """Factory: returns a FastAPI dependency that produces a Principal."""
 
+    # Only trust gateway-injected identity headers when an upstream proxy is
+    # guaranteed to strip them from client requests (nginx gateway on AWS).
+    # On cPanel/Passenger there is no such proxy, so this MUST stay false.
+    trust_gateway = os.getenv("TRUST_GATEWAY_HEADERS", "false").lower() in ("1", "true", "yes")
+
     async def get_principal(
         request: Request,
         x_user_id: str | None = Header(default=None),
         x_user_role: str | None = Header(default=None),
     ) -> Principal:
-        # Trust gateway-injected headers when present.
-        if x_user_id:
+        # Trust gateway-injected headers only when explicitly enabled.
+        validator = getattr(request.app.state, "validate_principal", None)
+        if trust_gateway and x_user_id and validator is None:
             return Principal(user_id=x_user_id, role=x_user_role)
 
         # Fallback: verify JWT ourselves.
@@ -75,10 +82,13 @@ def make_principal_dependency(secret: str):
         if not token:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No token provided")
         payload = decode_jwt(token, secret)
+        if payload.get("type") == "refresh":
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "An access token is required")
         user_id = payload.get("userId") or payload.get("sub")
         if not user_id:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token missing user id")
-        return Principal(user_id=str(user_id), role=payload.get("role"), jti=payload.get("jti"))
+        principal = Principal(user_id=str(user_id), role=payload.get("role"), jti=payload.get("jti"))
+        return await validator(principal) if validator is not None else principal
 
     return get_principal
 

@@ -1,0 +1,38 @@
+# Apache config for the static Next.js export served from public_html.
+# Mirrors the nginx gateway's try_files fallback + asset caching.
+
+RewriteEngine On
+
+# Without this the PWA manifest is served as octet-stream and is ignored by browsers
+AddType application/manifest+json .webmanifest
+
+# Force HTTPS
+RewriteCond %{HTTPS} !=on
+RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
+
+# Real files (assets, .html, .txt payloads) are served as-is
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# /dashboard and /dashboard/ -> dashboard.html. Next also emits a dashboard/
+# directory (RSC payloads), so a plain "-d => stop" rule would 404 here.
+RewriteCond %{DOCUMENT_ROOT}/$1.html -f
+RewriteRule ^(.+?)/?$ /$1.html [L]
+
+RewriteRule ^$ /index.html [L]
+
+# Unknown page-like paths fall back to the SPA shell; missing assets (anything
+# with a file extension) stay real 404s instead of returning HTML.
+RewriteCond %{REQUEST_URI} !\.[A-Za-z0-9]+$
+RewriteRule ^ /index.html [L]
+
+# Long-cache immutable Next.js build assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/webp "access plus 1 month"
+  ExpiresByType text/html "access plus 0 seconds"
+</IfModule>

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -14,6 +15,20 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 
+def _register_mysql_uuid_encoder() -> None:
+    """Let PyMySQL bind uuid.UUID params (stored as CHAR(36) on MySQL)."""
+    try:
+        from pymysql import converters
+    except ImportError:
+        return
+    converters.encoders.setdefault(
+        uuid.UUID, lambda obj, mapping=None: converters.escape_str(str(obj))
+    )
+    converters.conversions.setdefault(
+        uuid.UUID, lambda obj, mapping=None: converters.escape_str(str(obj))
+    )
+
+
 class Base(DeclarativeBase):
     """Common declarative base; each service subclasses per-schema in its own module."""
 
@@ -22,6 +37,8 @@ class DB:
     """Holds the engine + sessionmaker for a service. Instantiate once per app."""
 
     def __init__(self, database_url: str, echo: bool = False) -> None:
+        if database_url.startswith("mysql"):
+            _register_mysql_uuid_encoder()
         # Sized so 6 services x N tasks stay under RDS max_connections
         # (~112 on db.t4g.micro): 6 x (4+4) = 48 per task.
         self.engine: AsyncEngine = create_async_engine(

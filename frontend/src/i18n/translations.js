@@ -36,6 +36,7 @@ export const translations = {
 
     // Progress
     my_progress: "My Progress", subject_performance: "SUBJECT PERFORMANCE",
+    gen_report: "Generate Report", export_lbl: "Export", continue: "Continue", loading: "Loading...", no_achievements_yet: "No achievements yet",
     weekly_report: "📧 WEEKLY REPORT", report_desc: "You're in the top 15% of your class! Report sent to parent every Sunday.",
     auto_sent: "✓ Auto-sent Sunday", cached_lessons: "💾 Offline Lessons Cached",
 
@@ -170,6 +171,7 @@ export const translations = {
 
     // Progress
     my_progress: "Maendeleo Yangu", subject_performance: "UTENDAJI WA SOMO",
+    gen_report: "Tengeneza Ripoti", export_lbl: "Hamisha", continue: "Endelea", loading: "Inapakia...", no_achievements_yet: "Bado hakuna mafanikio",
     weekly_report: "📧 RIPOTI YA WIKI", report_desc: "Uko katika top 15% ya darasa lako! Ripoti inatumwa kwa mzazi kila Jumapili.",
     auto_sent: "✓ Inatumwa Jumapili", cached_lessons: "💾 Masomo Yaliyohifadhiwa",
 

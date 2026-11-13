@@ -1,0 +1,165 @@
+"""The combined FastAPI app for shared-hosting deployments.
+
+One process serves every route the nginx gateway + 6 services served on AWS:
+  /api/auth, /api/users, /api/children, /api/schools, /api/onboarding,
+  /api/payments, /api/coupons, /api/agents, /api/ai, /api/progress,
+  /api/leaderboard, /api/exams, /api/curriculum, /api/admin
+
+Differences from the microservice deployment:
+  * No Redis — LocalEventBus dispatches notification events in-process.
+  * No nginx gateway — JWT is verified by each router's own dependency
+    (TRUST_GATEWAY_HEADERS must stay false), CORS handled here.
+  * Background loops (reminders/reconciler) are NOT started; trigger them
+    via cron:  POST /api/payments/reminders/run  and  /api/payments/admin/reconcile.
+"""
+from __future__ import annotations
+
+import os
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
+
+from elimu_common.auth import Principal
+from elimu_common.db import DB
+from elimu_common.errors import register_exception_handlers
+from elimu_common.local_events import LocalEventBus
+from elimu_common.logger import configure_logging
+
+from .loader import import_submodule
+
+# ─── Load every service under its alias ─────────────────────────────────────
+auth_routes = import_submodule("auth", "routers.auth")
+auth_models = import_submodule("auth", "models")
+users_routes = import_submodule("users", "routers.users")
+schools_routes = import_submodule("schools", "routers.schools")
+onboarding_routes = import_submodule("schools", "routers.onboarding")
+billing_routes = import_submodule("billing", "routers.billing")
+renew_routes = import_submodule("billing", "routers.renew")
+webhook_routes = import_submodule("billing", "routers.webhook")
+agents_routes = import_submodule("billing", "routers.agents")
+ai_routes = import_submodule("learning", "routers.ai")
+photoscan_routes = import_submodule("learning", "routers.photoscan")
+curriculum_routes = import_submodule("learning", "routers.curriculum")
+exams_routes = import_submodule("learning", "routers.exams")
+progress_routes = import_submodule("learning", "routers.progress")
+leaderboard_routes = import_submodule("learning", "routers.leaderboard")
+admin_routes = import_submodule("admin", "routers.admin")
+ch6_routes = import_submodule("admin", "routers.ch6_insurance_network")
+
+# /api/ch6/conversions/process is internal (billing -> admin) and has no auth;
+# the AWS gateway never routed it, so it must not be exposed here either.
+_ch6_public = APIRouter(tags=["ch6-insurance-network"])
+_ch6_public.routes.extend(
+    r for r in ch6_routes.router.routes if getattr(r, "path", "") != "/api/ch6/conversions/process"
+)
+notif_worker = import_submodule("notifications", "worker")
+
+billing_settings = import_submodule("billing", "deps").settings
+learning_settings = import_submodule("learning", "deps").settings
+notif_settings = notif_worker.Settings()  # type: ignore[call-arg]
+
+logger = configure_logging("elimuai-monolith", billing_settings.log_level)
+db = DB(billing_settings.database_url)
+
+# a2wsgi never runs ASGI lifespan, so all app.state wiring happens at import
+# time. Nothing here needs a running event loop.
+_bus = LocalEventBus()
+
+
+async def _notify(topic: str, payload: dict) -> None:
+    await notif_worker.handle(notif_settings, topic, payload)
+
+
+_bus.register(_notify)
+
+app = FastAPI(title="elimuai-api", version="0.1.0")
+
+app.state.db = db
+app.state.logger = logger
+app.state.settings = billing_settings  # scheduler/reconciler read billing knobs
+app.state.event_bus = _bus
+app.state.bullmq = None  # BullMQ path disabled — payments go via HTTP gateway
+
+
+async def _validate_principal(principal: Principal) -> Principal:
+    if not principal.jti:
+        raise HTTPException(401, "Session missing. Please sign in again.")
+    try:
+        user_id = uuid.UUID(principal.user_id)
+    except ValueError as exc:
+        raise HTTPException(401, "Invalid user id") from exc
+    async for session in db.session():
+        role = await session.scalar(
+            select(auth_models.User.role).join(
+                auth_models.UserSession,
+                auth_models.UserSession.user_id == auth_models.User.id,
+            ).where(
+                auth_models.User.id == user_id,
+                auth_models.User.is_active.is_(True),
+                auth_models.UserSession.token_jti == principal.jti,
+                auth_models.UserSession.is_revoked.is_(False),
+                auth_models.UserSession.expires_at > datetime.utcnow(),
+            ).limit(1)
+        )
+        if role is None:
+            raise HTTPException(401, "Session expired or revoked")
+        return Principal(user_id=principal.user_id, role=role, jti=principal.jti)
+    raise HTTPException(503, "Session validation unavailable")
+
+
+app.state.validate_principal = _validate_principal
+
+if learning_settings.anthropic_api_key:
+    try:
+        from anthropic import Anthropic
+        app.state.anthropic = Anthropic(api_key=learning_settings.anthropic_api_key)
+    except Exception:  # noqa: BLE001
+        app.state.anthropic = None
+else:
+    app.state.anthropic = None
+
+register_exception_handlers(app, is_prod=(billing_settings.env == "production"))
+
+_cors = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors or [
+        "https://elimuai.africa",
+        "https://www.elimuai.africa",
+        "http://localhost:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "elimuai-monolith"} | await db.healthcheck()
+
+
+for router in (
+    auth_routes.router,            # /api/auth  (internal verify router deliberately NOT mounted)
+    users_routes.router,
+    users_routes.children_router,
+    schools_routes.router,
+    onboarding_routes.router,
+    billing_routes.router,
+    billing_routes.coupons_router,
+    renew_routes.router,
+    webhook_routes.router,
+    agents_routes.router,
+    ai_routes.router,
+    photoscan_routes.router,
+    curriculum_routes.router,
+    exams_routes.router,
+    progress_routes.router,
+    leaderboard_routes.router,
+    admin_routes.router,
+    _ch6_public,
+):
+    app.include_router(router)
