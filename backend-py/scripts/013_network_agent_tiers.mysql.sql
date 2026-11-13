@@ -65,18 +65,21 @@ SET @sql := IF(@exists=0,
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
 -- Swap UNIQUE(referral_id) → UNIQUE(referral_id, agent_id) so a manager override
--- row can live alongside the agent's direct row for the same referral.
-SET @exists := (SELECT COUNT(*) FROM information_schema.STATISTICS
-                WHERE TABLE_SCHEMA=@db AND TABLE_NAME='agent_commissions' AND INDEX_NAME='uq_agent_commissions_referral');
-SET @sql := IF(@exists>0,
-  "ALTER TABLE agent_commissions DROP INDEX uq_agent_commissions_referral",
-  'SELECT 1');
-PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
-
+# row can live alongside the agent's direct row for the same referral. Add the
+# composite index FIRST — it covers referral_id as the leftmost column, so the
+# fk_agent_commissions_referral foreign key stays satisfied when we drop the old
+# single-column unique (MySQL error 1553 otherwise).
 SET @exists := (SELECT COUNT(*) FROM information_schema.STATISTICS
                 WHERE TABLE_SCHEMA=@db AND TABLE_NAME='agent_commissions' AND INDEX_NAME='uq_agent_commissions_referral_agent');
 SET @sql := IF(@exists=0,
   "ALTER TABLE agent_commissions ADD UNIQUE KEY uq_agent_commissions_referral_agent (referral_id, agent_id)",
+  'SELECT 1');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+
+SET @exists := (SELECT COUNT(*) FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA=@db AND TABLE_NAME='agent_commissions' AND INDEX_NAME='uq_agent_commissions_referral');
+SET @sql := IF(@exists>0,
+  "ALTER TABLE agent_commissions DROP INDEX uq_agent_commissions_referral",
   'SELECT 1');
 PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
 
