@@ -253,13 +253,11 @@ async def agent_onboard_customer(
     body: OnboardCustomerIn,
     principal=current_principal,
     sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
 ):
-    """Agent creates a new user (unverified) and attributes the referral to themselves.
-
-    The user still needs to complete registration (set password, verify email) —
-    an admin or a follow-up flow issues them a signup token. For now we create
-    the user record with role='student' and password_hash=NULL so the agent
-    can hand off signup instructions containing the email.
+    """Agent creates a new customer, attributes the referral, and dispatches
+    temporary login credentials. The customer must reset their password and
+    verify their email (via OTP) on first login.
     """
     uid = uuid.UUID(principal.user_id)
     agent = await _load_agent_by_user(sess, uid)
@@ -273,13 +271,16 @@ async def agent_onboard_customer(
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with that email already exists")
 
+    temp_password = _gen_temp_password()
     new_user_id = str(uuid.uuid4())
     await sess.execute(text(
         """
-        INSERT INTO users (id, name, email, phone, role, country, onboarded)
-        VALUES (:id, :n, :e, :p, :r, :c, false)
+        INSERT INTO users (id, name, email, phone, password_hash, must_reset_password,
+                           role, country, is_active, email_verified, onboarded)
+        VALUES (:id, :n, :e, :p, :pw, true, :r, :c, true, false, false)
         """
-    ), {"id": new_user_id, "n": body.name, "e": body.email, "p": body.phone, "r": body.role, "c": body.country})
+    ), {"id": new_user_id, "n": body.name, "e": body.email, "p": body.phone,
+        "pw": _hash_password(temp_password), "r": body.role, "c": body.country})
 
     await sess.execute(text(
         """
@@ -289,6 +290,15 @@ async def agent_onboard_customer(
     ), {"a": agent["id"], "u": new_user_id})
     await sess.commit()
 
+    await bus.publish("user.onboarded", {
+        "user_id": new_user_id,
+        "email": body.email,
+        "name": body.name,
+        "role": body.role,
+        "school_name": "ElimuAI",
+        "temp_password": temp_password,
+    })
+
     return {"user_id": str(new_user_id), "email": body.email, "message": "Customer onboarded"}
 
 
@@ -297,13 +307,14 @@ async def agent_onboard_school(
     body: OnboardSchoolIn,
     principal=current_principal,
     sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
 ):
     """Agent registers a new school and its first admin, attributing the referral.
 
-    Creates a school (free plan) plus an admin user (password_hash=NULL, unverified)
-    and links the referral to the admin. The commission accrues when the school
-    admin completes their first payment. The admin still has to finish signup
-    (set a password / verify email) via the normal flow using this email.
+    Creates a school (free plan) plus an admin user with temporary credentials,
+    then dispatches the welcome/credentials email. The admin must reset their
+    password and verify their email (via OTP) on first login. The commission
+    accrues when the school admin completes their first payment.
     """
     uid = uuid.UUID(principal.user_id)
     agent = await _load_agent_by_user(sess, uid)
@@ -327,15 +338,17 @@ async def agent_onboard_school(
         "cur": body.curriculum, "e": body.admin_email, "p": body.admin_phone,
     })
 
+    temp_password = _gen_temp_password()
     new_user_id = str(uuid.uuid4())
     await sess.execute(text(
         """
-        INSERT INTO users (id, school_id, name, email, phone, role, country, curriculum, onboarded)
-        VALUES (:id, :sid, :n, :e, :p, 'admin', :c, :cur, false)
+        INSERT INTO users (id, school_id, name, email, phone, password_hash, must_reset_password,
+                           role, country, curriculum, is_active, email_verified, onboarded)
+        VALUES (:id, :sid, :n, :e, :p, :pw, true, 'admin', :c, :cur, true, false, false)
         """
     ), {
         "id": new_user_id, "sid": new_school_id, "n": body.admin_name, "e": body.admin_email,
-        "p": body.admin_phone, "c": body.country, "cur": body.curriculum,
+        "p": body.admin_phone, "pw": _hash_password(temp_password), "c": body.country, "cur": body.curriculum,
     })
 
     await sess.execute(text(
@@ -345,6 +358,15 @@ async def agent_onboard_school(
         """
     ), {"rid": str(uuid.uuid4()), "a": agent["id"], "u": new_user_id})
     await sess.commit()
+
+    await bus.publish("user.onboarded", {
+        "user_id": new_user_id,
+        "email": body.admin_email,
+        "name": body.admin_name,
+        "role": "admin",
+        "school_name": body.school_name,
+        "temp_password": temp_password,
+    })
 
     return {
         "school_id": new_school_id,
