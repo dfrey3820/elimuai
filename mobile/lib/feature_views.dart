@@ -196,6 +196,12 @@ class _FeaturePageState extends State<FeaturePage> {
                       study: widget.study, feature: feature, record: record, onEdit: () => form(record))));
                     if (mounted) load();
                   })
+                  : const {'payments', 'invoices', 'transactions'}.contains(feature.id)
+                  ? FinancialTile(record: record, invoice: feature.id == 'invoices', onTap: () async {
+                    await Navigator.push(context, MaterialPageRoute(builder: (_) => RecordPage(
+                      study: widget.study, feature: feature, record: record, onEdit: () => form(record))));
+                    if (mounted) load();
+                  })
                   : ListTile(contentPadding: const EdgeInsets.all(14),
                   leading: Icon(feature.icon, color: feature.color),
                   title: Text(recordTitle(record), style: const TextStyle(fontWeight: FontWeight.w800)),
@@ -391,10 +397,9 @@ class _RecordPageState extends State<RecordPage> {
       if (error != null) Notice(error!, onRetry: load),
       if (isPerson) PersonDetails(record: {'role': widget.feature.id == 'teachers' ? 'teacher' : 'student', ...widget.record},
         detail: detail, actions: personActions)
-      else if (widget.feature.id == 'invoices' || widget.feature.id == 'payments' || widget.feature.id == 'transactions') ...[
-        FinancialRow(record: widget.record, invoice: widget.feature.id == 'invoices'),
-        RecordFacts(detail ?? widget.record),
-      ] else RecordFacts(detail ?? widget.record),
+      else if (widget.feature.id == 'invoices' || widget.feature.id == 'payments' || widget.feature.id == 'transactions')
+        TransactionDetails(record: detail ?? widget.record, invoice: widget.feature.id == 'invoices')
+      else RecordFacts(detail ?? widget.record),
       const SizedBox(height: 20),
       if (widget.feature.edit) FilledButton.icon(onPressed: busy || widget.study.demo ? null : () async {
         Navigator.pop(context); await widget.onEdit();

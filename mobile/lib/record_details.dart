@@ -109,8 +109,9 @@ class _PersonDetailsState extends State<PersonDetails> {
       if (detail.containsKey('aiSessions')) 'AI sessions'];
     final selected = tabs.contains(tab) ? tab : tabs.first;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Container(padding: const EdgeInsets.all(20), decoration: const BoxDecoration(
-        color: Color(0xFF176B59), border: Border(bottom: BorderSide(color: sunshine, width: 4))),
+      Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(
+        gradient: heroGradient, borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: emerald.withValues(alpha: .3), blurRadius: 22, offset: const Offset(0, 12))]),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             CircleAvatar(radius: 28, backgroundColor: sunshine,
@@ -233,6 +234,111 @@ class FinancialRow extends StatelessWidget {
         if (record['mpesa_receipt'] != null) Text('${record['mpesa_receipt']}', style: const TextStyle(fontSize: 11)),
       ]), const Divider(height: 24),
     ]));
+  }
+}
+
+String _cap(String value) => value.isEmpty ? value : '${value[0].toUpperCase()}${value.substring(1)}';
+
+(LinearGradient, Color, IconData) _txnLook(String status) {
+  final s = status.toLowerCase();
+  if (const {'completed', 'paid', 'success'}.contains(s)) return (heroGradient, emerald, Icons.check_circle_outline);
+  if (const {'pending', 'processing', 'initiated'}.contains(s)) return (sunriseGradient, orange, Icons.schedule);
+  return (const LinearGradient(colors: [Color(0xFF9B4331), Color(0xFFBD354F)],
+    begin: Alignment.topLeft, end: Alignment.bottomRight), const Color(0xFFBD354F), Icons.error_outline);
+}
+
+/// Compact financial row used in transaction / payment / invoice lists.
+class FinancialTile extends StatelessWidget {
+  const FinancialTile({super.key, required this.record, required this.onTap, this.invoice = false});
+  final Map<String, dynamic> record;
+  final VoidCallback onTap;
+  final bool invoice;
+  @override
+  Widget build(BuildContext context) {
+    final status = '${record['status'] ?? 'unknown'}';
+    final (_, tint, icon) = _txnLook(status);
+    final amount = num.tryParse('${record['amount']}');
+    final title = invoice ? '${record['invoice_number'] ?? 'Invoice'}' : '${record['plan'] ?? 'Payment'}';
+    final who = '${record['user_name'] ?? record['user_email'] ?? record['email'] ?? ''}';
+    return InkWell(borderRadius: BorderRadius.circular(8), onTap: onTap, child: Padding(
+      padding: const EdgeInsets.all(14), child: Row(children: [
+      Container(width: 44, height: 44, decoration: BoxDecoration(color: tint.withValues(alpha: .15),
+        borderRadius: BorderRadius.circular(12)), child: Icon(invoice ? Icons.receipt_long_outlined : Icons.account_balance_wallet_outlined, color: tint)),
+      const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 4),
+        Row(children: [
+          Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(color: tint.withValues(alpha: .13), borderRadius: BorderRadius.circular(20)),
+            child: Text(_cap(status), style: TextStyle(color: tint, fontSize: 10, fontWeight: FontWeight.w800))),
+          if (who.isNotEmpty) ...[const SizedBox(width: 8),
+            Flexible(child: Text(who, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)))],
+        ]),
+      ])),
+      const SizedBox(width: 10),
+      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Text('${record['currency'] ?? 'KES'} ${amount?.toStringAsFixed(0) ?? '—'}',
+          style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15)),
+        const SizedBox(height: 2),
+        Text(readableDate(context, record['created_at']), style: const TextStyle(fontSize: 10)),
+      ]),
+      Icon(icon, size: 16, color: tint),
+    ])));
+  }
+}
+
+/// Full detail view for a single transaction / payment / invoice.
+class TransactionDetails extends StatelessWidget {
+  const TransactionDetails({super.key, required this.record, this.invoice = false});
+  final Map<String, dynamic> record;
+  final bool invoice;
+  @override
+  Widget build(BuildContext context) {
+    final status = '${record['status'] ?? 'unknown'}';
+    final (gradient, tint, icon) = _txnLook(status);
+    final amount = num.tryParse('${record['amount']}');
+    final rows = <Widget>[];
+    void add(String label, dynamic value, IconData fieldIcon, {bool copy = false}) {
+      final text = value == null ? '' : '$value'.trim();
+      if (text.isEmpty) return;
+      rows.add(DetailField(label, text, icon: fieldIcon, copy: copy));
+    }
+    add('Status', _cap(status), icon);
+    if (!invoice) add('Plan', record['plan'], Icons.card_membership_outlined);
+    if (invoice) add('Invoice number', record['invoice_number'], Icons.tag_outlined, copy: true);
+    add('Billing cycle', record['billing_cycle'], Icons.repeat_rounded);
+    add('Reference', record['mpesa_receipt'] ?? record['reference'] ?? record['provider_txn_id'] ?? record['checkout_request_id'],
+      Icons.confirmation_number_outlined, copy: true);
+    add('Phone', record['phone'] ?? record['msisdn'], Icons.phone_outlined, copy: true);
+    add('Customer', record['user_name'] ?? record['name'], Icons.person_outline);
+    add('Email', record['user_email'] ?? record['email'], Icons.mail_outline, copy: true);
+    add('Method', record['provider'] ?? record['payment_method'] ?? record['method'], Icons.account_balance_outlined);
+    add('Date', readableDate(context, record['created_at'] ?? record['completed_at']), Icons.event_outlined);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: gradient,
+        borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: tint.withValues(alpha: .35),
+          blurRadius: 24, offset: const Offset(0, 12))]),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(invoice ? Icons.receipt_long_outlined : Icons.account_balance_wallet_outlined, color: Colors.white, size: 26),
+            const Spacer(),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(20)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, color: Colors.white, size: 13),
+                const SizedBox(width: 5), Text(_cap(status), style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800))])),
+          ]),
+          const SizedBox(height: 18),
+          Text('${record['currency'] ?? 'KES'} ${amount?.toStringAsFixed(2) ?? '—'}',
+            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          Text(invoice ? 'Invoice ${record['invoice_number'] ?? ''}' : '${_cap('${record['plan'] ?? 'payment'}')} subscription',
+            style: TextStyle(color: Colors.white.withValues(alpha: .85), fontWeight: FontWeight.w600)),
+        ])),
+      const SectionTitle('Transaction details'),
+      ...rows,
+    ]);
   }
 }
 
