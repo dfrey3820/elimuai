@@ -9,6 +9,17 @@ import 'ui.dart';
 
 Future<void> openFeature(BuildContext context, Study study, AppFeature feature) async {
   if (!feature.visibleTo(study)) return;
+  if (feature.id == 'onboard-customer' || feature.id == 'onboard-school') {
+    final result = await Navigator.push<Map<String, dynamic>>(context, MaterialPageRoute(builder: (_) => NativeForm(
+      study: study, title: feature.title, submitLabel: feature.title, fields: feature.fields,
+      initial: feature.id == 'onboard-customer'
+        ? const {'role': 'student', 'country': 'KE'}
+        : const {'country': 'KE', 'curriculum': 'CBC'},
+      submit: (values) => study.api.post(feature.createPath!, values),
+    )));
+    if (result != null && context.mounted) await resultDialog(context, result);
+    return;
+  }
   if (feature.id == 'delete-account') {
     if (study.demo) return;
     if (!await confirmAction(context, 'Permanently delete your account?')) return;
@@ -51,7 +62,7 @@ class _WorkspaceState extends State<Workspace> {
     const personal = {'subscription', 'invoices', 'payments', 'profile', 'grade', 'password', 'sessions', 'delete-account'};
     const learning = {'photoscan', 'homework', 'exams', 'progress', 'achievements', 'leaderboard', 'exam-history'};
     final groups = <(String, List<AppFeature>)>[
-      (study.role == 'parent' ? 'Your family' : study.isStaff ? 'Your workspace' : 'Keep exploring',
+      (study.role == 'parent' ? 'Your family' : study.role == 'marketing_agent' ? 'Your network' : study.isStaff ? 'Your workspace' : 'Keep exploring',
         available.where((feature) => !personal.contains(feature.id) && !learning.contains(feature.id)).toList()),
       ('Learning & discovery', available.where((feature) => learning.contains(feature.id)).toList()),
       ('Account & billing', available.where((feature) => personal.contains(feature.id)).toList()),
@@ -59,13 +70,16 @@ class _WorkspaceState extends State<Workspace> {
     final title = widget.overview ? switch (study.role) {
       'teacher' => 'Great teaching starts here.', 'parent' => 'Growing together.',
       'admin' => 'A school full of possibility.', 'super_admin' => 'Your ElimuAI command centre.',
+      'marketing_agent' => 'Grow your network.',
       _ => 'A world to explore.',
     } : '${study.workspaceTitle} hub';
-    final accent = switch (study.role) { 'teacher' => sky, 'parent' => orange, 'admin' => emerald, 'super_admin' => purple, _ => emerald };
     return ListView(padding: const EdgeInsets.fromLTRB(20, 18, 20, 30), children: [
-      Container(padding: const EdgeInsets.all(22), color: accent, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(gradient: roleGradient(study.role), borderRadius: BorderRadius.circular(22),
+          boxShadow: [BoxShadow(color: roleGradient(study.role).colors.last.withValues(alpha: .3), blurRadius: 24, offset: const Offset(0, 12))]),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [Icon(switch (study.role) { 'parent' => Icons.family_restroom, 'teacher' => Icons.co_present,
-          'admin' => Icons.domain, _ => Icons.explore }, color: Colors.white, size: 28),
+          'admin' => Icons.domain, 'marketing_agent' => Icons.hub, _ => Icons.explore }, color: Colors.white, size: 28),
           const SizedBox(width: 10), Expanded(child: Text('${study.demo ? 'DEMO / ' : ''}${study.role.replaceAll('_', ' ').toUpperCase()}',
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 10)))]),
         const SizedBox(height: 18), Text(title, style: const TextStyle(color: Colors.white, fontSize: 27, height: 1.25, fontWeight: FontWeight.w900)),

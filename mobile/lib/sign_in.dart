@@ -170,14 +170,73 @@ class _SignInState extends State<SignIn> {
         ] else ...[
           Align(alignment: Alignment.centerRight, child: TextButton(
             onPressed: busy ? null : recoverPassword, child: const Text('Forgot password?'))),
-          const SizedBox(height: 6),
-          OutlinedButton(onPressed: busy ? null : widget.study.enterDemo,
-            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 50),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-            child: const Text('Explore a demo')),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           TextButton(onPressed: busy ? null : register, child: const Text('New to ElimuAI? Create an account')),
         ],
+      ])),
+  )));
+}
+
+class ForcePasswordReset extends StatefulWidget {
+  const ForcePasswordReset({super.key, required this.study});
+  final Study study;
+  @override
+  State<ForcePasswordReset> createState() => _ForcePasswordResetState();
+}
+
+class _ForcePasswordResetState extends State<ForcePasswordReset> {
+  final password = TextEditingController();
+  final confirm = TextEditingController();
+  final form = GlobalKey<FormState>();
+  bool busy = false;
+  bool hidden = true;
+  String? error;
+
+  Future<void> submit() async {
+    if (busy || !form.currentState!.validate()) return;
+    setState(() { busy = true; error = null; });
+    try {
+      await widget.study.api.post('/api/auth/force-reset-password', {'new_password': password.text});
+      await widget.study.refreshUser();
+    } catch (failure) {
+      if (mounted) setState(() => error = '$failure');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  void dispose() { password.dispose(); confirm.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 480),
+      child: ListView(padding: const EdgeInsets.fromLTRB(26, 28, 26, 24), children: [
+        const Brand(), const SizedBox(height: 24),
+        const Text('Set your password', style: TextStyle(fontSize: 27, fontWeight: FontWeight.w900, height: 1.2)),
+        const SizedBox(height: 10),
+        Text('Welcome, ${widget.study.name}. For your security, choose a new password before continuing. '
+          'A verification code is also sent to your email every time you sign in.',
+          style: TextStyle(height: 1.6, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+        const SizedBox(height: 24),
+        Form(key: form, child: Column(children: [
+          TextFormField(controller: password, obscureText: hidden,
+            decoration: InputDecoration(labelText: 'New password', prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(tooltip: hidden ? 'Show password' : 'Hide password',
+                onPressed: () => setState(() => hidden = !hidden),
+                icon: Icon(hidden ? Icons.visibility_outlined : Icons.visibility_off_outlined))),
+            validator: (value) => (value?.length ?? 0) < 8 ? 'Use at least 8 characters.' : null),
+          const SizedBox(height: 14),
+          TextFormField(controller: confirm, obscureText: hidden, onFieldSubmitted: (_) => submit(),
+            decoration: const InputDecoration(labelText: 'Confirm password', prefixIcon: Icon(Icons.lock_outline)),
+            validator: (value) => value != password.text ? 'Passwords do not match.' : null),
+          if (error != null) Notice(error!, icon: Icons.error_outline),
+          const SizedBox(height: 20),
+          SizedBox(width: double.infinity, child: FilledButton(onPressed: busy ? null : submit,
+            child: busy ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Set password & continue'))),
+          TextButton(onPressed: busy ? null : () => widget.study.signOut(), child: const Text('Sign out')),
+        ])),
       ])),
   )));
 }

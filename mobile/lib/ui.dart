@@ -1,10 +1,29 @@
 import 'package:flutter/material.dart';
 
 const purple = Color(0xFF8538D6);
+const indigo = Color(0xFF5B5BD6);
 const emerald = Color(0xFF16856A);
 const orange = Color(0xFFE86C36);
 const sunshine = Color(0xFFFFCF5C);
 const sky = Color(0xFF307FCA);
+const coral = Color(0xFFEF5DA8);
+
+// Signature gradients used across splash, onboarding, hero cards and the brand.
+const brandGradient = LinearGradient(
+  colors: [purple, indigo], begin: Alignment.topLeft, end: Alignment.bottomRight);
+const heroGradient = LinearGradient(
+  colors: [Color(0xFF1FA587), emerald], begin: Alignment.topLeft, end: Alignment.bottomRight);
+const sunriseGradient = LinearGradient(
+  colors: [orange, coral], begin: Alignment.topLeft, end: Alignment.bottomRight);
+
+LinearGradient roleGradient(String role) => switch (role) {
+  'teacher' => const LinearGradient(colors: [sky, indigo], begin: Alignment.topLeft, end: Alignment.bottomRight),
+  'parent' => sunriseGradient,
+  'admin' => heroGradient,
+  'super_admin' => brandGradient,
+  'marketing_agent' => brandGradient,
+  _ => heroGradient,
+};
 
 ThemeData appTheme(bool dark) {
   final scheme = ColorScheme.fromSeed(seedColor: emerald,
@@ -25,17 +44,32 @@ ThemeData appTheme(bool dark) {
     appBarTheme: AppBarTheme(centerTitle: false, scrolledUnderElevation: 0,
       backgroundColor: dark ? const Color(0xFF182620) : const Color(0xFFD8EDE0)),
     inputDecorationTheme: InputDecorationTheme(
-      filled: true, fillColor: dark ? const Color(0xFF233B32) : const Color(0xFFE1EEE8),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+      filled: true, fillColor: dark ? const Color(0xFF233B32) : Colors.white,
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: scheme.outlineVariant.withValues(alpha: .5))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: emerald, width: 1.6)),
       contentPadding: const EdgeInsets.all(17),
     ),
+    cardTheme: CardThemeData(
+      elevation: 0, color: dark ? const Color(0xFF182620) : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+    ),
     filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(
-      minimumSize: const Size(48, 52),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      minimumSize: const Size(48, 54),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+    )),
+    outlinedButtonTheme: OutlinedButtonThemeData(style: OutlinedButton.styleFrom(
+      minimumSize: const Size(48, 54),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
     )),
     navigationBarTheme: NavigationBarThemeData(
       backgroundColor: scheme.surface,
+      elevation: 3, height: 68,
       indicatorColor: sunshine,
       labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
     ),
@@ -49,9 +83,11 @@ class Brand extends StatelessWidget {
   @override
   Widget build(BuildContext context) => FittedBox(fit: BoxFit.scaleDown,
     alignment: Alignment.centerLeft, child: Row(mainAxisSize: MainAxisSize.min, children: [
-    Container(width: 38, height: 38, decoration: BoxDecoration(color: purple,
-      borderRadius: BorderRadius.circular(8)),
-      child: const Icon(Icons.auto_stories_rounded, color: Colors.white, size: 23)),
+    Container(width: compact ? 34 : 40, height: compact ? 34 : 40,
+      decoration: BoxDecoration(gradient: brandGradient,
+        borderRadius: BorderRadius.circular(compact ? 10 : 13),
+        boxShadow: [BoxShadow(color: purple.withValues(alpha: .35), blurRadius: 14, offset: const Offset(0, 6))]),
+      child: Icon(Icons.auto_stories_rounded, color: Colors.white, size: compact ? 20 : 24)),
     const SizedBox(width: 10),
     Text('Elimu', style: TextStyle(fontSize: compact ? 22 : 27, fontWeight: FontWeight.w900)),
     Text('AI', style: TextStyle(fontSize: compact ? 22 : 27, color: purple, fontWeight: FontWeight.w900)),

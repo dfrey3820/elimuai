@@ -212,7 +212,7 @@ class _FeaturePageState extends State<FeaturePage> {
             if (content is Map && content.isNotEmpty)
               if (const {'profile', 'grade'}.contains(feature.id))
                 PersonDetails(record: Map<String, dynamic>.from(content))
-              else if (const {'progress', 'school', 'platform', 'subscription'}.contains(feature.id))
+              else if (const {'progress', 'school', 'platform', 'subscription', 'network'}.contains(feature.id))
                 SummaryDetails(id: feature.id, data: Map<String, dynamic>.from(content))
               else RecordFacts(content)
             else if (feature.id == 'password') FilledButton.icon(onPressed: () => form(), icon: const Icon(Icons.lock_reset), label: const Text('Change password'))
@@ -238,17 +238,19 @@ class _FeaturePageState extends State<FeaturePage> {
 }
 
 String recordTitle(Map<String, dynamic> record) => '${record['name'] ?? record['title'] ?? record['paper_title'] ?? record['invoice_number'] ??
-  record['invoiceNumber'] ?? record['user_agent'] ?? record['subject_name'] ?? record['activity_type'] ?? record['status'] ?? 'Record'}';
+  record['invoiceNumber'] ?? record['user_name'] ?? record['user_agent'] ?? record['subject_name'] ?? record['activity_type'] ?? record['status'] ?? 'Record'}';
 
 String recordSubtitle(Map<String, dynamic> record) => [
-  record['grade_level'], record['subject'], record['email'],
+  record['grade_level'], record['subject'], record['email'], record['user_email'], record['plan'],
   if (record['student_count'] != null) '${record['student_count']} learners',
   if (record['total_xp'] != null) '${record['total_xp']} XP',
   if (record['xp'] != null) '${record['xp']} XP',
+  if (record['referral_count'] != null) '${record['referral_count']} referrals',
+  if (record['commission_amount'] != null) '${record['currency'] ?? 'KES'} ${record['commission_amount']}',
   if (record['amount'] != null) '${record['currency'] ?? 'KES'} ${record['amount']}',
   if (record['score'] != null) 'Score ${record['score']}/${record['total'] ?? '100'}',
   if (record['earned'] != null) record['earned'] == true ? 'Earned' : 'In progress',
-  record['description'], record['status'],
+  record['kind'], record['commission_status'], record['description'], record['status'],
 ].where((value) => value != null && '$value'.isNotEmpty).join(' / ');
 
 class RecordFacts extends StatelessWidget {

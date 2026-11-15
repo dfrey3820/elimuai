@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({'onboarding_seen': true});
     FlutterSecureStorage.setMockInitialValues({});
   });
 
@@ -49,10 +49,7 @@ void main() {
   for (final size in [const Size(320, 700), const Size(430, 932), const Size(1024, 768)]) {
     testWidgets('demo navigation and reading fit ${size.width}', (tester) async {
       final study = await openApp(tester, size);
-      await tester.scrollUntilVisible(find.text('Explore a demo'), 250,
-        scrollable: find.byType(Scrollable).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Explore a demo'));
+      study.enterDemo();
       await tester.pumpAndSettle();
       expect(find.text('Your next chapter, Alex.'), findsOneWidget);
       await tester.tap(find.text('Learn'));

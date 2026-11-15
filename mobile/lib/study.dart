@@ -28,6 +28,33 @@ class Lesson {
   int get minutes => (content.split(RegExp(r'\s+')).length / 160).ceil().clamp(2, 60);
 }
 
+/// A saved tutor conversation kept on-device for offline reading.
+class TutorSession {
+  const TutorSession({required this.id, required this.subject,
+    required this.messages, required this.savedAt});
+  final String id;
+  final String subject;
+  final List<Map<String, String>> messages;
+  final DateTime savedAt;
+
+  factory TutorSession.fromJson(Map<String, dynamic> data) => TutorSession(
+    id: '${data['id']}', subject: '${data['subject'] ?? 'General'}',
+    messages: ((data['messages'] as List?) ?? []).map((item) =>
+      (item as Map).map((key, value) => MapEntry('$key', '$value'))).toList(),
+    savedAt: DateTime.tryParse('${data['savedAt']}') ?? DateTime.now(),
+  );
+
+  Map<String, dynamic> toJson() => {'id': id, 'subject': subject,
+    'messages': messages, 'savedAt': savedAt.toIso8601String()};
+
+  String get title {
+    final first = messages.firstWhere((item) => item['role'] == 'user',
+      orElse: () => const {'content': 'Tutor session'});
+    return (first['content'] ?? 'Tutor session').trim();
+  }
+  int get exchanges => messages.where((item) => item['role'] == 'user').length;
+}
+
 const demoSubjects = [
   {'id': 'math', 'name': 'Mathematics'},
   {'id': 'science', 'name': 'Integrated Science'},
@@ -61,8 +88,10 @@ class Study extends ChangeNotifier {
   List<Map<String, dynamic>> subjects = [];
   List<Lesson> lessons = [];
   List<Lesson> saved = [];
+  List<TutorSession> tutorSessions = [];
   Set<String> completed = {};
   bool dark = false;
+  bool onboardingSeen = false;
   late SharedPreferences _prefs;
   bool get signedIn => user != null;
   String get role => '${user?['role'] ?? 'student'}';
@@ -70,7 +99,7 @@ class Study extends ChangeNotifier {
   bool get isAdmin => const {'admin', 'super_admin'}.contains(role);
   String get workspaceTitle => switch (role) {
     'parent' => 'Family', 'teacher' => 'Teaching', 'admin' => 'School',
-    'super_admin' => 'Admin', _ => 'Explore',
+    'super_admin' => 'Admin', 'marketing_agent' => 'Network', _ => 'Explore',
   };
   String get name => '${user?['name'] ?? 'Learner'}';
   String get level => '${user?['gradeLevel'] ?? user?['grade_level'] ?? ''}';
@@ -79,6 +108,7 @@ class Study extends ChangeNotifier {
   Future<void> initialize() async {
     _prefs = await SharedPreferences.getInstance();
     dark = _prefs.getBool('dark') ?? false;
+    onboardingSeen = _prefs.getBool('onboarding_seen') ?? false;
     try {
       await api.restore();
       if (api.hasSession) {
@@ -100,6 +130,12 @@ class Study extends ChangeNotifier {
     } on FormatException {
       saved = [];
     }
+    try {
+      tutorSessions = ((jsonDecode(_prefs.getString('tutor.$_scope') ?? '[]')) as List)
+          .map((item) => TutorSession.fromJson(Map<String, dynamic>.from(item))).toList();
+    } on FormatException {
+      tutorSessions = [];
+    }
     completed = (_prefs.getStringList('completed.$_scope') ?? []).toSet();
   }
 
@@ -108,6 +144,14 @@ class Study extends ChangeNotifier {
     user = response['user'] is Map
         ? Map<String, dynamic>.from(response['user'])
         : Map<String, dynamic>.from((await api.get('/api/auth/me'))['user']);
+    _loadLocal();
+    notifyListeners();
+    await load();
+  }
+
+  Future<void> refreshUser() async {
+    final response = await api.get('/api/auth/me');
+    user = Map<String, dynamic>.from(response['user'] as Map);
     _loadLocal();
     notifyListeners();
     await load();
@@ -177,6 +221,30 @@ class Study extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> completeOnboarding() async {
+    onboardingSeen = true;
+    await _prefs.setBool('onboarding_seen', true);
+    notifyListeners();
+  }
+
+  Future<void> saveTutorSession(String subject, List<Map<String, String>> messages) async {
+    final session = TutorSession(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      subject: subject,
+      messages: messages.map((item) => Map<String, String>.from(item)).toList(),
+      savedAt: DateTime.now(),
+    );
+    tutorSessions = [session, ...tutorSessions];
+    await _prefs.setString('tutor.$_scope', jsonEncode(tutorSessions.map((item) => item.toJson()).toList()));
+    notifyListeners();
+  }
+
+  Future<void> deleteTutorSession(String id) async {
+    tutorSessions = tutorSessions.where((item) => item.id != id).toList();
+    await _prefs.setString('tutor.$_scope', jsonEncode(tutorSessions.map((item) => item.toJson()).toList()));
+    notifyListeners();
+  }
+
   Future<void> signOut({bool remote = true}) async {
     try {
       if (!demo && remote) await api.logout();
@@ -185,6 +253,7 @@ class Study extends ChangeNotifier {
       user = null;
       demo = false;
       saved = [];
+      tutorSessions = [];
       completed = {};
       subjects = [];
       lessons = [];

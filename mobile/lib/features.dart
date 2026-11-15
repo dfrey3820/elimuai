@@ -7,6 +7,9 @@ const allRoles = {'student', 'parent', 'teacher', 'admin', 'super_admin'};
 const staffRoles = {'teacher', 'admin', 'super_admin'};
 const adminRoles = {'admin', 'super_admin'};
 const platformRoles = {'super_admin'};
+const networkRoles = {'marketing_agent'};
+// Everyone, including network agents, can manage their own account.
+const accountRoles = {'student', 'parent', 'teacher', 'admin', 'super_admin', 'marketing_agent'};
 
 class FormFieldSpec {
   const FormFieldSpec(this.key, this.label, {this.required = false, this.lines = 1,
@@ -140,7 +143,7 @@ const features = <AppFeature>[
   AppFeature(id: 'payments', title: 'Payment history', description: 'Your payment records',
     icon: Icons.account_balance_wallet_outlined, color: orange, path: '/api/payments/history', key: 'payments'),
   AppFeature(id: 'profile', title: 'My profile', description: 'Make ElimuAI yours',
-    icon: Icons.person_outline, color: purple, path: '/api/users/profile', key: 'user',
+    icon: Icons.person_outline, color: purple, path: '/api/users/profile', key: 'user', roles: accountRoles,
     createPath: '/api/users/profile', createMethod: 'PATCH', fields: [nameField,
       FormFieldSpec('phone', 'Phone number'), FormFieldSpec('language', 'Language', options: ['en', 'sw'])]),
   AppFeature(id: 'grade', title: 'My grade', description: 'Keep your curriculum up to date',
@@ -148,10 +151,11 @@ const features = <AppFeature>[
     createPath: '/api/users/grade', fields: [FormFieldSpec('grade_level', 'Grade level', required: true)]),
   AppFeature(id: 'password', title: 'Change password', description: 'Keep your account secure',
     icon: Icons.lock_outline, color: emerald, path: '/api/auth/change-password', createPath: '/api/auth/change-password',
+    roles: accountRoles,
     fields: [FormFieldSpec('current_password', 'Current password', required: true, secret: true),
       FormFieldSpec('new_password', 'New password', required: true, secret: true, minLength: 8)]),
   AppFeature(id: 'sessions', title: 'Signed-in devices', description: 'You are in control',
-    icon: Icons.devices_outlined, color: sky, path: '/api/auth/sessions', key: 'sessions',
+    icon: Icons.devices_outlined, color: sky, path: '/api/auth/sessions', key: 'sessions', roles: accountRoles,
     actions: [RecordAction('Sign out this device', '', method: 'DELETE', confirm: true, icon: Icons.logout)]),
   AppFeature(id: 'delete-account', title: 'Delete account', description: 'Permanently close your account',
     icon: Icons.person_remove_outlined, color: Color(0xFFBD354F), path: '/api/auth/account',
@@ -171,6 +175,32 @@ const features = <AppFeature>[
     icon: Icons.payments_outlined, color: emerald, path: '/api/admin/transactions', key: 'transactions', roles: platformRoles, paginated: true),
   AppFeature(id: 'sms', title: 'SMS delivery', description: 'Notification delivery records',
     icon: Icons.sms_outlined, color: sky, path: '/api/admin/sms-logs', key: 'sms_logs', roles: platformRoles, paginated: true),
+
+  // ─── Network agents / managers (marketing_agent) ──────────────────────────
+  AppFeature(id: 'network', title: 'My network', description: 'Your code, referrals & earnings',
+    icon: Icons.hub_outlined, color: purple, path: '/api/agents/me', roles: networkRoles),
+  AppFeature(id: 'onboard-customer', title: 'Onboard a customer', description: 'Bring in a student, parent or teacher',
+    icon: Icons.person_add_alt_1_outlined, color: emerald, path: '/api/agents/me/referrals', roles: networkRoles,
+    createPath: '/api/agents/me/customers', fields: [nameField, emailField,
+      FormFieldSpec('phone', 'Phone number'),
+      FormFieldSpec('role', 'Customer type', required: true, options: ['student', 'parent', 'teacher']),
+      FormFieldSpec('country', 'Country', required: true, options: ['KE', 'TZ', 'UG'])]),
+  AppFeature(id: 'onboard-school', title: 'Onboard a school', description: 'Register a school and its admin',
+    icon: Icons.domain_add_outlined, color: sky, path: '/api/agents/me/referrals', roles: networkRoles,
+    createPath: '/api/agents/me/schools', fields: [
+      FormFieldSpec('school_name', 'School name', required: true),
+      FormFieldSpec('admin_name', 'Admin full name', required: true),
+      FormFieldSpec('admin_email', 'Admin email', required: true),
+      FormFieldSpec('admin_phone', 'Admin phone'),
+      FormFieldSpec('county', 'County'),
+      FormFieldSpec('country', 'Country', required: true, options: ['KE', 'TZ', 'UG']),
+      FormFieldSpec('curriculum', 'Curriculum', options: ['CBC', 'NECTA', 'NCDC'])]),
+  AppFeature(id: 'agent-referrals', title: 'My referrals', description: 'People you brought in',
+    icon: Icons.groups_2_outlined, color: emerald, path: '/api/agents/me/referrals', key: 'referrals', roles: networkRoles),
+  AppFeature(id: 'agent-commissions', title: 'My earnings', description: 'Commissions on your sales',
+    icon: Icons.payments_outlined, color: orange, path: '/api/agents/me/commissions', key: 'commissions', roles: networkRoles),
+  AppFeature(id: 'agent-team', title: 'My team', description: 'Agents reporting to you (managers)',
+    icon: Icons.diversity_3_outlined, color: sky, path: '/api/agents/me/team', key: 'team', roles: networkRoles),
 ];
 
 List<AppFeature> featuresFor(Study study) => features.where((feature) => feature.visibleTo(study)).toList();

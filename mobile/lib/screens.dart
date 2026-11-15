@@ -82,7 +82,10 @@ class Home extends StatelessWidget {
       if (study.error != null) Notice(study.error!, onRetry: study.load, icon: Icons.wifi_off_rounded),
       if (study.busy) const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: LinearProgressIndicator()),
       const SizedBox(height: 18),
-      Container(color: emerald, padding: const EdgeInsets.all(16), child: LayoutBuilder(builder: (context, constraints) => Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      Container(padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(gradient: heroGradient, borderRadius: BorderRadius.circular(22),
+          boxShadow: [BoxShadow(color: emerald.withValues(alpha: .3), blurRadius: 24, offset: const Offset(0, 12))]),
+        child: LayoutBuilder(builder: (context, constraints) => Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Make today\na learning day.', style: TextStyle(fontSize: 23, height: 1.2, fontWeight: FontWeight.w800, color: Colors.white)),
           const SizedBox(height: 16),

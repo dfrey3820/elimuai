@@ -243,6 +243,35 @@ class SummaryDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (id == 'network') {
+      final agent = Map<String, dynamic>.from(data['agent'] ?? {});
+      final stats = Map<String, dynamic>.from(data['stats'] ?? {});
+      final rate = ((num.tryParse('${agent['commission_rate']}') ?? 0) * 100).round();
+      final tier = '${agent['tier'] ?? 'agent'}';
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Container(color: purple, padding: const EdgeInsets.all(22), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text(tier == 'manager' ? 'NETWORK MANAGER' : 'NETWORK AGENT',
+              style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800))),
+            DetailBadge('$rate% commission', color: Colors.white24, icon: Icons.percent),
+          ]),
+          const SizedBox(height: 16),
+          const Text('YOUR REFERRAL CODE', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          SelectableText('${agent['agent_code'] ?? '—'}',
+            style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 3)),
+          const SizedBox(height: 10),
+          const Text('Share this code so new sign-ups are credited to you.', style: TextStyle(color: Colors.white, height: 1.5)),
+        ])),
+        const SectionTitle('Your performance'),
+        MetricStrip(metrics: [
+          DetailMetric(label: 'Referrals', value: '${stats['referrals'] ?? 0}', icon: Icons.groups_2_outlined, color: emerald),
+          DetailMetric(label: 'Pending', value: 'KES ${stats['pending_amount'] ?? 0}', icon: Icons.hourglass_bottom_outlined, color: orange),
+          DetailMetric(label: 'Paid out', value: 'KES ${stats['paid_amount'] ?? 0}', icon: Icons.payments_outlined, color: purple),
+          DetailMetric(label: 'Commissions', value: '${stats['commissions'] ?? 0}', icon: Icons.receipt_long_outlined, color: sky),
+        ]),
+      ]);
+    }
     if (id == 'subscription') {
       final enabled = data['aiEnabled'] == true;
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
