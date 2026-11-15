@@ -421,21 +421,76 @@ class SummaryDetails extends StatelessWidget {
         const SectionTitle('Recent learning'), ActivityTimeline(records: _records(data['recent_activity'])),
       ]);
     }
-    final sections = id == 'platform' ? <String, dynamic>{'Users': data['users'], 'Payments': data['payments'], 'SMS delivery': data['sms']}
-      : <String, dynamic>{'School snapshot': data};
+    if (id == 'platform') {
+      final users = Map<String, dynamic>.from(data['users'] ?? {});
+      final payments = Map<String, dynamic>.from(data['payments'] ?? {});
+      final sms = Map<String, dynamic>.from(data['sms'] ?? {});
+      final revenue = num.tryParse('${payments['total_revenue']}') ?? 0;
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: brandGradient,
+          borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: purple.withValues(alpha: .3),
+            blurRadius: 24, offset: const Offset(0, 12))]),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.dashboard_rounded, color: Colors.white, size: 26),
+            const SizedBox(height: 14),
+            const Text('PLATFORM OVERVIEW', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('${users['total_users'] ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 38, fontWeight: FontWeight.w900, height: 1)),
+              const SizedBox(width: 8),
+              const Padding(padding: EdgeInsets.only(bottom: 6), child: Text('users', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600))),
+            ]),
+            const SizedBox(height: 8),
+            Text('KES ${revenue.toStringAsFixed(0)} earned / ${users['paid_users'] ?? 0} on paid plans',
+              style: TextStyle(color: Colors.white.withValues(alpha: .9), height: 1.4)),
+          ])),
+        const SectionTitle('People'),
+        MetricStrip(metrics: [
+          DetailMetric(label: 'Students', value: '${users['students'] ?? 0}', icon: Icons.school_outlined, color: sky),
+          DetailMetric(label: 'Teachers', value: '${users['teachers'] ?? 0}', icon: Icons.co_present_outlined, color: purple),
+          DetailMetric(label: 'Parents', value: '${users['parents'] ?? 0}', icon: Icons.family_restroom, color: orange),
+          DetailMetric(label: 'Active', value: '${users['active_users'] ?? 0}', icon: Icons.check_circle_outline, color: emerald),
+        ]),
+        const SectionTitle('Revenue & payments'),
+        MetricStrip(metrics: [
+          DetailMetric(label: 'Revenue (KES)', value: revenue.toStringAsFixed(0), icon: Icons.payments_outlined, color: emerald),
+          DetailMetric(label: 'Completed', value: '${payments['completed'] ?? 0}', icon: Icons.check_circle_outline, color: emerald),
+          DetailMetric(label: 'Pending', value: '${payments['pending'] ?? 0}', icon: Icons.schedule, color: orange),
+          DetailMetric(label: 'Failed', value: '${payments['failed'] ?? 0}', icon: Icons.error_outline, color: coral),
+        ]),
+        const SectionTitle('SMS delivery'),
+        MetricStrip(metrics: [
+          DetailMetric(label: 'Sent', value: '${sms['sent'] ?? 0}', icon: Icons.mark_email_read_outlined, color: emerald),
+          DetailMetric(label: 'Failed', value: '${sms['failed'] ?? 0}', icon: Icons.sms_failed_outlined, color: coral),
+          DetailMetric(label: 'Total', value: '${sms['total'] ?? 0}', icon: Icons.sms_outlined, color: sky),
+        ]),
+      ]);
+    }
+    // School snapshot (and any generic numeric summary).
+    final numeric = data.entries.where((entry) => entry.value is num).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      if (data['name'] != null) Text('${data['name']}', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
-      for (final section in sections.entries) if (section.value is Map) ...[
-        SectionTitle(section.key),
-        MetricStrip(metrics: (section.value as Map).entries.where((entry) => entry.value is num).map((entry) => DetailMetric(
-          label: '${entry.key}'.replaceAll('_', ' '), value: '${entry.value}',
-          icon: '${entry.key}'.contains('score') ? Icons.insights_outlined : '${entry.key}'.contains('teacher') ? Icons.co_present_outlined : Icons.bar_chart,
-          color: '${entry.key}'.contains('teacher') ? purple : '${entry.key}'.contains('student') ? sky : emerald,
+      Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(gradient: heroGradient,
+        borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: emerald.withValues(alpha: .3),
+          blurRadius: 24, offset: const Offset(0, 12))]),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.domain_rounded, color: Colors.white, size: 26),
+          const SizedBox(height: 12),
+          Text('${data['name'] ?? 'School overview'}',
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, height: 1.25)),
+        ])),
+      if (numeric.isNotEmpty) ...[
+        const SectionTitle('Snapshot'),
+        MetricStrip(metrics: numeric.map((entry) => DetailMetric(
+          label: entry.key.replaceAll('_', ' '), value: '${entry.value}',
+          icon: entry.key.contains('score') ? Icons.insights_outlined
+            : entry.key.contains('teacher') ? Icons.co_present_outlined
+            : entry.key.contains('student') ? Icons.school_outlined : Icons.bar_chart,
+          color: entry.key.contains('teacher') ? purple : entry.key.contains('student') ? sky : emerald,
         )).toList()),
-        for (final entry in (section.value as Map).entries.where((entry) =>
-            entry.value is String && !const {'id', 'school_id', 'name'}.contains('${entry.key}')))
-          DetailField('${entry.key}'.replaceAll('_', ' '), '${entry.value}'),
       ],
+      for (final entry in data.entries.where((entry) =>
+          entry.value is String && !const {'id', 'school_id', 'name'}.contains(entry.key)))
+        DetailField(entry.key.replaceAll('_', ' '), '${entry.value}'),
     ]);
   }
 }

@@ -49,7 +49,10 @@ Map<String, dynamic> demoData(String id) => switch (id) {
   'leaderboard' => {'leaderboard': [{'rank': 1, 'name': 'Amani', 'xp': 420, 'streak': 4}, {'rank': 2, 'name': 'Alex', 'xp': 380, 'streak': 3}]},
   'school' => {'school': {'name': 'Acacia Academy', 'student_count': 210, 'teacher_count': 12, 'avg_score': 78}},
   'subscription' => {'plan': 'Trial', 'aiEnabled': true, 'trialDaysRemaining': 5},
-  'platform' => {'total_users': 1240, 'total_schools': 18, 'active_subscriptions': 320},
+  'platform' => {
+    'users': {'total_users': 1240, 'students': 980, 'teachers': 120, 'parents': 140, 'active_users': 1100, 'paid_users': 320},
+    'payments': {'total': 540, 'completed': 320, 'pending': 40, 'failed': 12, 'total_revenue': 486000},
+    'sms': {'total': 910, 'sent': 870, 'failed': 40}},
   'users' => {'users': [
     {'id': 'demo-learner', 'name': 'Amani Wanjiku', 'email': 'amani@example.com', 'role': 'student',
       'grade_level': 'Grade 7', 'curriculum': 'CBC', 'country': 'KE', 'language': 'en',
