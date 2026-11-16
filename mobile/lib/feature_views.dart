@@ -474,7 +474,8 @@ class _NativeFormState extends State<NativeForm> {
     try {
       final values = <String, dynamic>{};
       for (final field in widget.fields) {
-        final value = field.options != null || field.lookup != null ? selected[field.key] ?? ''
+        final value = field.options != null || field.lookup != null || field.key == 'grade_level'
+          ? selected[field.key] ?? ''
           : field.secret ? controllers[field.key]!.text : controllers[field.key]!.text.trim();
         if (value.isNotEmpty) values[field.key] = field.numeric ? num.parse(value) : value;
       }
@@ -499,12 +500,14 @@ class _NativeFormState extends State<NativeForm> {
           if (field.numeric && num.tryParse(value) == null) return 'Enter a valid number.';
           return null;
         }
-        final options = field.options;
+        // grade_level becomes a country-aware dropdown (levels follow the user's country).
+        final options = field.options ?? (field.key == 'grade_level'
+          ? gradeLevelsFor('${widget.study.user?['country'] ?? 'KE'}') : null);
         final lookup = lookups[field.key] ?? [];
         final choices = options?.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList()
           ?? lookup.map((item) => DropdownMenuItem(value: '${item['id']}', child: Text('${item['name']}', overflow: TextOverflow.ellipsis))).toList();
         final validValue = choices.any((item) => item.value == selected[field.key]) ? selected[field.key] : null;
-        return Padding(padding: const EdgeInsets.only(bottom: 16), child: field.options != null || field.lookup != null
+        return Padding(padding: const EdgeInsets.only(bottom: 16), child: options != null || field.lookup != null
           ? DropdownButtonFormField<String>(initialValue: validValue, isExpanded: true,
             decoration: InputDecoration(labelText: field.label), items: choices, validator: validate,
             onChanged: busy ? null : (value) => selected[field.key] = value)

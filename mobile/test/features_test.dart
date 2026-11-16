@@ -85,9 +85,9 @@ void main() {
     expect(sent?['password'], '  a secure password  ');
   });
 
-  for (final (role, id, fields, createPath, key) in [
-    ('parent', 'children', ['Amani', 'amani@example.com', '', 'Grade 7'], '/api/users/onboard-child', 'children'),
-    ('teacher', 'classes', ['Acacia', 'Grade 7', 'Mathematics'], '/api/onboarding/classes', 'classes'),
+  for (final (role, id, texts, grade, createPath, key) in [
+    ('parent', 'children', ['Amani', 'amani@example.com', ''], 'Grade 7 (JSS)', '/api/users/onboard-child', 'children'),
+    ('teacher', 'classes', ['Acacia', 'Mathematics'], 'Grade 7 (JSS)', '/api/onboarding/classes', 'classes'),
   ]) {
     testWidgets('$role can create a $id record through the native form', (tester) async {
       Map<String, dynamic>? sent;
@@ -101,21 +101,27 @@ void main() {
       }));
       final study = Study(api);
       await study.initialize();
-      study.user = {'id': 'test-user', 'role': role};
+      study.user = {'id': 'test-user', 'role': role, 'country': 'KE'};
       final feature = features.firstWhere((feature) => feature.id == id);
       await tester.pumpWidget(MaterialApp(theme: appTheme(false), home: FeaturePage(study: study, feature: feature)));
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Add'));
       await tester.pumpAndSettle();
-      for (final (index, text) in fields.indexed) {
+      for (final (index, text) in texts.indexed) {
         await tester.enterText(find.byType(TextFormField).at(index), text);
       }
+      // grade_level is a country-aware dropdown.
+      await tester.ensureVisible(find.byType(DropdownButtonFormField<String>));
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(grade).last);
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(find.text('Save'), 200, scrollable: find.byType(Scrollable).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
-      expect(sent?['name'], fields.first);
-      expect(sent?['grade_level'], 'Grade 7');
+      expect(sent?['name'], texts.first);
+      expect(sent?['grade_level'], grade);
       expect(find.text('Created'), findsOneWidget);
       await tester.tap(find.text('Close'));
       await tester.pumpAndSettle();

@@ -25,6 +25,19 @@ LinearGradient roleGradient(String role) => switch (role) {
   _ => heroGradient,
 };
 
+// Curriculum + grade levels per country (KE=CBC, TZ=NECTA, UG=NCDC).
+const curriculumByCountry = <String, String>{'KE': 'CBC', 'TZ': 'NECTA', 'UG': 'NCDC'};
+const _gradesByCountry = <String, List<String>>{
+  'KE': ['PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
+    'Grade 7 (JSS)', 'Grade 8 (JSS)', 'Grade 9 (JSS)'],
+  'TZ': ['Standard 1', 'Standard 2', 'Standard 3', 'Standard 4', 'Standard 5', 'Standard 6', 'Standard 7',
+    'Form 1', 'Form 2', 'Form 3', 'Form 4'],
+  'UG': ['Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6', 'Primary 7',
+    'Senior 1', 'Senior 2', 'Senior 3', 'Senior 4'],
+};
+
+List<String> gradeLevelsFor(String? countryCode) => _gradesByCountry[countryCode] ?? _gradesByCountry['KE']!;
+
 ThemeData appTheme(bool dark) {
   final scheme = ColorScheme.fromSeed(seedColor: emerald,
     brightness: dark ? Brightness.dark : Brightness.light).copyWith(

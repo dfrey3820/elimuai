@@ -20,11 +20,6 @@ const _roles = <_Role>[
   _Role('admin', Icons.domain_rounded, heroGradient, 'School', 'Run your school on ElimuAI'),
 ];
 
-const _grades = <String>[
-  'PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
-  'Grade 7 (JSS)', 'Grade 8 (JSS)', 'Grade 9 (JSS)',
-];
-
 /// Short, gamified, multi-step sign-up. Returns the /api/auth/register response.
 class SignUp extends StatefulWidget {
   const SignUp({super.key, required this.study});
@@ -65,7 +60,8 @@ class _SignUpState extends State<SignUp> {
     try {
       final body = <String, dynamic>{
         'name': name.text.trim(), 'email': email.text.trim(), 'password': password.text,
-        'role': role, 'country': country, 'language': 'en', 'curriculum': 'CBC',
+        'role': role, 'country': country, 'language': 'en',
+        'curriculum': curriculumByCountry[country] ?? 'CBC',
       };
       if (role == 'student' && gradeLevel != null) body['grade_level'] = gradeLevel;
       if (role == 'admin') {
@@ -146,9 +142,10 @@ class _SignUpState extends State<SignUp> {
                 validator: (v) => (v == null || v.length < 8) ? 'Use at least 8 characters.' : null),
               if (role == 'student') ...[
                 const SizedBox(height: 14),
-                DropdownButtonFormField<String>(initialValue: gradeLevel, isExpanded: true,
+                DropdownButtonFormField<String>(key: ValueKey(country), initialValue: gradeLevel, isExpanded: true,
                   decoration: const InputDecoration(labelText: 'Grade / class', prefixIcon: Icon(Icons.school_outlined)),
-                  items: _grades.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                  items: (gradeLevelsFor(country))
+                    .map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
                   onChanged: (v) => setState(() => gradeLevel = v),
                   validator: (v) => (role == 'student' && (v == null || v.isEmpty)) ? 'Select your grade.' : null),
               ],
@@ -167,7 +164,7 @@ class _SignUpState extends State<SignUp> {
               Wrap(spacing: 8, children: [
                 for (final c in const [('KE', 'Kenya'), ('TZ', 'Tanzania'), ('UG', 'Uganda')])
                   ChoiceChip(label: Text(c.$2), selected: country == c.$1, showCheckmark: false,
-                    onSelected: (_) => setState(() => country = c.$1)),
+                    onSelected: (_) => setState(() { country = c.$1; gradeLevel = null; })),
               ]),
             ])),
             const SizedBox(height: 18),
