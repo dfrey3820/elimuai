@@ -242,6 +242,24 @@ async def remove_child(
     return {"message": "Child removed"}
 
 
+@children_router.post("/children/{child_id}/reset-password", response_model=dict)
+async def reset_child_password(
+    child_id: uuid.UUID,
+    principal=ParentOnly,
+    sess: AsyncSession = Depends(get_session),
+):
+    """Reset the child's password to a fresh temp value (forces a reset on next login)."""
+    await _owned_child(sess, principal.user_id, child_id)
+    temp_password = _gen_temp_password()
+    hashed = bcrypt.hashpw(temp_password.encode(), bcrypt.gensalt(rounds=12)).decode()
+    await sess.execute(
+        text("UPDATE users SET password_hash = :h, must_reset_password = TRUE WHERE id = :c"),
+        {"h": hashed, "c": child_id},
+    )
+    await sess.commit()
+    return {"id": str(child_id), "temp_password": temp_password, "message": "Password reset."}
+
+
 @children_router.post("/onboard-child", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def onboard_child(
     body: OnboardChildIn,

@@ -216,6 +216,23 @@ async def resend_teacher_invite(
     return {"id": str(teacher.id), "message": "Invite email resent with new temporary password."}
 
 
+@router.post("/teachers/{teacher_id}/reset-password")
+async def reset_teacher_password(
+    teacher_id: uuid.UUID,
+    principal=AdminOnly,
+    sess: AsyncSession = Depends(get_session),
+):
+    """Reset to a fresh temp password (returned inline); forces a reset on next login."""
+    me = await _me(sess, principal)
+    teacher = await _get_scoped_teacher(sess, me, teacher_id)
+    temp = gen_temp_password()
+    teacher.password_hash = hash_password(temp)
+    teacher.must_reset_password = True
+    await sess.commit()
+    log.info("teacher.password_reset", teacher_id=str(teacher.id), by=str(me.id))
+    return {"id": str(teacher.id), "temp_password": temp, "message": "Password reset."}
+
+
 @router.post("/students", response_model=OnboardResult, status_code=status.HTTP_201_CREATED)
 async def onboard_students(
     body: BulkStudentsIn,
@@ -517,6 +534,7 @@ async def reset_student_password(
     student = await _get_scoped_student(sess, me, student_id)
     temp = gen_temp_password()
     student.password_hash = hash_password(temp)
+    student.must_reset_password = True
     await sess.commit()
     log.info("student.password_reset", student_id=str(student.id), by=str(me.id))
     return {"id": str(student.id), "temp_password": temp, "message": "Password reset."}
