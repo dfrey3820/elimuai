@@ -5,8 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'study.dart';
 import 'ui.dart';
-import 'features.dart';
-import 'feature_views.dart';
+import 'sign_up.dart';
 import 'password_recovery.dart';
 
 class SignIn extends StatefulWidget {
@@ -82,19 +81,8 @@ class _SignInState extends State<SignIn> {
   }
 
   Future<void> register() async {
-    final response = await Navigator.push<Map<String, dynamic>>(context, MaterialPageRoute(builder: (_) => NativeForm(
-      study: widget.study, title: 'Join ElimuAI', submitLabel: 'Create account',
-      fields: const [nameField, emailField, FormFieldSpec('phone', 'Phone number'),
-        FormFieldSpec('password', 'Password', required: true, secret: true, minLength: 8),
-        FormFieldSpec('role', 'I am a', required: true, options: ['student', 'parent', 'teacher', 'admin']),
-        FormFieldSpec('country', 'Country', required: true, options: ['KE', 'TZ', 'UG']),
-        FormFieldSpec('language', 'Language', required: true, options: ['en', 'sw']),
-        gradeField, FormFieldSpec('curriculum', 'Curriculum'),
-        FormFieldSpec('school_name', 'School name (school administrators)'),
-        FormFieldSpec('signup_token', 'School signup code (if supplied)', secret: true),
-      ], initial: const {'role': 'student', 'country': 'KE', 'language': 'en', 'curriculum': 'CBC'},
-      submit: (values) => widget.study.api.post('/api/auth/register', values),
-    )));
+    final response = await Navigator.push<Map<String, dynamic>>(context,
+      MaterialPageRoute(builder: (_) => SignUp(study: widget.study)));
     if (!mounted || response == null) return;
     final registered = response['user'];
     if (registered is Map && registered['email'] is String) {
