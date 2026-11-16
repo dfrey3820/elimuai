@@ -157,7 +157,8 @@ async def list_children(
     rows = (await sess.execute(
         text(
             """
-            SELECT u.id, u.name, u.grade_level, u.streak_days, u.total_xp, u.last_login,
+            SELECT u.id, u.name, u.email, u.phone, u.grade_level, u.curriculum, u.country,
+                   u.streak_days, u.total_xp, u.last_login,
                    (SELECT COUNT(*) FROM progress_logs
                      WHERE user_id = u.id AND logged_date = CURRENT_DATE) AS today_sessions
             FROM parent_children pc

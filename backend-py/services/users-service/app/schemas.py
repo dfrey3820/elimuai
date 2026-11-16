@@ -45,7 +45,11 @@ class ChildOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    email: EmailStr | None = None
+    phone: str | None = None
     grade_level: str | None = None
+    curriculum: str | None = None
+    country: str | None = None
     streak_days: int = 0
     total_xp: int = 0
     last_login: datetime | None = None
