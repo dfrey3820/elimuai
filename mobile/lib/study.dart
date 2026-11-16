@@ -112,10 +112,23 @@ class Study extends ChangeNotifier {
     try {
       await api.restore();
       if (api.hasSession) {
-        final response = await api.get('/api/auth/me');
-        user = Map<String, dynamic>.from(response['user'] as Map);
-        _loadLocal();
-        await load();
+        // Restore the cached profile first so saved lessons/sessions load even
+        // when the device is offline — the whole point of offline reading.
+        final cached = _prefs.getString('profile');
+        if (cached != null) {
+          try { user = Map<String, dynamic>.from(jsonDecode(cached) as Map); } on FormatException { /* ignore */ }
+        }
+        if (user != null) _loadLocal();
+        try {
+          final response = await api.get('/api/auth/me');
+          user = Map<String, dynamic>.from(response['user'] as Map);
+          await _prefs.setString('profile', jsonEncode(user));
+          _loadLocal();
+          await load();
+        } catch (failure) {
+          // Offline / server unreachable: keep the cached session + local data.
+          if (user == null) rethrow;
+        }
       }
     } catch (failure) {
       startupError = '$failure';
@@ -144,6 +157,7 @@ class Study extends ChangeNotifier {
     user = response['user'] is Map
         ? Map<String, dynamic>.from(response['user'])
         : Map<String, dynamic>.from((await api.get('/api/auth/me'))['user']);
+    await _prefs.setString('profile', jsonEncode(user));
     _loadLocal();
     notifyListeners();
     await load();
@@ -152,6 +166,7 @@ class Study extends ChangeNotifier {
   Future<void> refreshUser() async {
     final response = await api.get('/api/auth/me');
     user = Map<String, dynamic>.from(response['user'] as Map);
+    await _prefs.setString('profile', jsonEncode(user));
     _loadLocal();
     notifyListeners();
     await load();
@@ -257,6 +272,7 @@ class Study extends ChangeNotifier {
       completed = {};
       subjects = [];
       lessons = [];
+      await _prefs.remove('profile');
       notifyListeners();
     }
   }
