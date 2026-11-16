@@ -423,6 +423,36 @@ class _RecordPageState extends State<RecordPage> {
     ]));
 }
 
+IconData _fieldIcon(FormFieldSpec field) {
+  switch (field.key) {
+    case 'name': case 'admin_name': case 'head_full_name': return Icons.person_outline;
+    case 'email': case 'admin_email': return Icons.mail_outline;
+    case 'phone': case 'admin_phone': case 'head_phone': case 'msisdn': return Icons.phone_outlined;
+    case 'password': case 'current_password': case 'new_password': case 'signup_token': case 'token': return Icons.lock_outline;
+    case 'role': return Icons.badge_outlined;
+    case 'country': return Icons.public;
+    case 'language': return Icons.language;
+    case 'grade_level': return Icons.school_outlined;
+    case 'curriculum': return Icons.auto_stories_outlined;
+    case 'subject': case 'subject_id': return Icons.menu_book_outlined;
+    case 'class_id': case 'class_name': return Icons.class_outlined;
+    case 'school_name': return Icons.domain_outlined;
+    case 'plan': return Icons.card_membership_outlined;
+    case 'days': return Icons.schedule;
+    case 'title': case 'title_sw': return Icons.title;
+    case 'content': case 'content_sw': return Icons.notes_outlined;
+    case 'county': return Icons.place_outlined;
+    case 'commission_rate': case 'override_rate': return Icons.percent;
+    case 'amount': return Icons.payments_outlined;
+    case 'payout_method': return Icons.account_balance_outlined;
+    case 'notes': return Icons.sticky_note_2_outlined;
+    default:
+      if (field.numeric) return Icons.tag;
+      if (field.secret) return Icons.lock_outline;
+      return Icons.edit_outlined;
+  }
+}
+
 class NativeForm extends StatefulWidget {
   const NativeForm({super.key, required this.study, required this.title, required this.fields,
     required this.submit, this.initial = const {}, this.submitLabel = 'Save'});
@@ -509,7 +539,7 @@ class _NativeFormState extends State<NativeForm> {
         final validValue = choices.any((item) => item.value == selected[field.key]) ? selected[field.key] : null;
         return Padding(padding: const EdgeInsets.only(bottom: 16), child: options != null || field.lookup != null
           ? DropdownButtonFormField<String>(initialValue: validValue, isExpanded: true,
-            decoration: InputDecoration(labelText: field.label), items: choices, validator: validate,
+            decoration: InputDecoration(labelText: field.label, prefixIcon: Icon(_fieldIcon(field))), items: choices, validator: validate,
             onChanged: busy ? null : (value) => selected[field.key] = value)
           : TextFormField(controller: controllers[field.key], enabled: !busy, obscureText: field.secret,
             minLines: field.secret ? 1 : field.lines, maxLines: field.secret ? 1 : field.lines,
@@ -517,7 +547,7 @@ class _NativeFormState extends State<NativeForm> {
             keyboardType: field.numeric ? TextInputType.number : field.key == 'email' ? TextInputType.emailAddress
               : field.key == 'phone' ? TextInputType.phone : field.lines > 1 ? TextInputType.multiline : TextInputType.text,
             inputFormatters: field.numeric ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))] : null,
-            decoration: InputDecoration(labelText: field.label), validator: validate));
+            decoration: InputDecoration(labelText: field.label, prefixIcon: Icon(_fieldIcon(field))), validator: validate));
       }),
       if (error != null) Notice(error!, icon: Icons.error_outline),
       FilledButton.icon(onPressed: busy || fetching ? null : save, icon: busy
