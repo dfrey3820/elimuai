@@ -20,6 +20,11 @@ const _roles = <_Role>[
   _Role('admin', Icons.domain_rounded, heroGradient, 'School', 'Run your school on ElimuAI'),
 ];
 
+const _grades = <String>[
+  'PP1', 'PP2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
+  'Grade 7 (JSS)', 'Grade 8 (JSS)', 'Grade 9 (JSS)',
+];
+
 /// Short, gamified, multi-step sign-up. Returns the /api/auth/register response.
 class SignUp extends StatefulWidget {
   const SignUp({super.key, required this.study});
@@ -36,9 +41,9 @@ class _SignUpState extends State<SignUp> {
   final password = TextEditingController();
   final school = TextEditingController();
   final token = TextEditingController();
-  final grade = TextEditingController();
   final form = GlobalKey<FormState>();
   String country = 'KE';
+  String? gradeLevel;
   bool hidden = true;
   bool busy = false;
   String? error;
@@ -50,7 +55,7 @@ class _SignUpState extends State<SignUp> {
   @override
   void dispose() {
     name.dispose(); email.dispose(); password.dispose();
-    school.dispose(); token.dispose(); grade.dispose();
+    school.dispose(); token.dispose();
     super.dispose();
   }
 
@@ -62,7 +67,7 @@ class _SignUpState extends State<SignUp> {
         'name': name.text.trim(), 'email': email.text.trim(), 'password': password.text,
         'role': role, 'country': country, 'language': 'en', 'curriculum': 'CBC',
       };
-      if (role == 'student' && grade.text.trim().isNotEmpty) body['grade_level'] = grade.text.trim();
+      if (role == 'student' && gradeLevel != null) body['grade_level'] = gradeLevel;
       if (role == 'admin') {
         body['school_name'] = school.text.trim();
         if (token.text.trim().isNotEmpty) body['signup_token'] = token.text.trim();
@@ -141,8 +146,11 @@ class _SignUpState extends State<SignUp> {
                 validator: (v) => (v == null || v.length < 8) ? 'Use at least 8 characters.' : null),
               if (role == 'student') ...[
                 const SizedBox(height: 14),
-                TextFormField(controller: grade, textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Grade / class (optional)', prefixIcon: Icon(Icons.school_outlined))),
+                DropdownButtonFormField<String>(initialValue: gradeLevel, isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Grade / class', prefixIcon: Icon(Icons.school_outlined)),
+                  items: _grades.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                  onChanged: (v) => setState(() => gradeLevel = v),
+                  validator: (v) => (role == 'student' && (v == null || v.isEmpty)) ? 'Select your grade.' : null),
               ],
               if (role == 'admin') ...[
                 const SizedBox(height: 14),
