@@ -66,6 +66,7 @@ async def onboard_teachers(
             user = User(
                 name=t.name, email=t.email, phone=t.phone,
                 password_hash=hash_password(temp),
+                must_reset_password=True,
                 role="teacher", school_id=me.school_id,
                 country=me.country, language="en",
             )
@@ -269,6 +270,7 @@ async def onboard_students(
             student = User(
                 name=s.name, email=s.email,
                 password_hash=hash_password(temp),
+                must_reset_password=True,
                 role="student", school_id=me.school_id,
                 country=me.country, language="en",
                 grade_level=s.grade_level,

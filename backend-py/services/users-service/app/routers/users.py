@@ -12,7 +12,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..deps import ParentOnly, current_principal, get_session
+from ..deps import ParentOnly, current_principal, get_event_bus, get_session
 from ..models import ParentChild, User
 from ..schemas import ChildOut, OnboardChildIn, OnboardChildOut, ProfilePatchIn, SummaryOut, UserOut
 
@@ -175,6 +175,7 @@ async def onboard_child(
     body: OnboardChildIn,
     principal=ParentOnly,
     sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
 ):
     if not body.email and not body.phone:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email or phone required")
@@ -191,6 +192,7 @@ async def onboard_child(
             email=body.email,
             phone=body.phone,
             password_hash=hashed,
+            must_reset_password=True,
             role="student",
             country=parent.country,
             language=parent.language,
@@ -204,6 +206,18 @@ async def onboard_child(
     except IntegrityError as exc:
         await sess.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, "Email or phone already registered") from exc
+
+    # Welcome email with temporary credentials (first login forces a reset).
+    if child.email and bus is not None:
+        await bus.publish("user.onboarded", {
+            "user_id": str(child.id),
+            "email": child.email,
+            "name": child.name,
+            "role": "student",
+            "school_name": "ElimuAI",
+            "temp_password": temp_password,
+            "invited_by": str(parent.id),
+        })
 
     return {
         "child": OnboardChildOut(

@@ -20,3 +20,8 @@ current_principal = Depends(get_principal)
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     async for sess in request.app.state.db.session():
         yield sess
+
+
+def get_event_bus(request: Request):
+    # Present in the monolith (LocalEventBus); absent in a standalone microservice.
+    return getattr(request.app.state, "event_bus", None)
