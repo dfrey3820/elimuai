@@ -98,8 +98,11 @@ const features = <AppFeature>[
     icon: Icons.fact_check_outlined, color: sky, path: '/api/exams/history', key: 'attempts'),
   AppFeature(id: 'children', title: 'My children', description: 'Stay close to their learning',
     icon: Icons.family_restroom, color: orange, path: '/api/users/children', key: 'children', roles: {'parent'},
+    detailPath: '/api/users/children/{id}',
     createPath: '/api/users/onboard-child', fields: [nameField, emailField,
-      FormFieldSpec('phone', 'Phone number'), gradeField]),
+      FormFieldSpec('phone', 'Phone number'), gradeField],
+    actions: [RecordAction('Remove child', '', method: 'DELETE', confirm: true, roles: {'parent'},
+      icon: Icons.person_remove_outlined)]),
   AppFeature(id: 'classes', title: 'Classes', description: 'Your teaching, organised',
     icon: Icons.school_outlined, color: sky, path: '/api/onboarding/classes', key: 'classes', roles: staffRoles,
     createPath: '/api/onboarding/classes', fields: [

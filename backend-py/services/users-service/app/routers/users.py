@@ -171,6 +171,77 @@ async def list_children(
     return {"children": [dict(r) for r in rows]}
 
 
+async def _owned_child(sess: AsyncSession, parent_id: str, child_id: uuid.UUID) -> None:
+    owns = (await sess.execute(
+        text("SELECT 1 FROM parent_children WHERE parent_id = :p AND child_id = :c"),
+        {"p": uuid.UUID(parent_id), "c": child_id},
+    )).scalar_one_or_none()
+    if not owns:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
+
+
+@children_router.get("/children/{child_id}", response_model=dict)
+async def child_detail(
+    child_id: uuid.UUID,
+    principal=ParentOnly,
+    sess: AsyncSession = Depends(get_session),
+):
+    await _owned_child(sess, principal.user_id, child_id)
+    user = (await sess.execute(
+        text(
+            "SELECT id, name, email, phone, role, grade_level, curriculum, country, language, "
+            "avatar_url, streak_days, total_xp, last_login, created_at FROM users WHERE id = :id"
+        ),
+        {"id": child_id},
+    )).mappings().first()
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found")
+    activity = (await sess.execute(
+        text(
+            "SELECT activity_type, score, duration_mins, xp_earned, logged_date "
+            "FROM progress_logs WHERE user_id = :id ORDER BY created_at DESC LIMIT 20"
+        ),
+        {"id": child_id},
+    )).mappings().all()
+    ai_sessions = (await sess.execute(
+        text(
+            "SELECT id, type, language, xp_earned, JSON_LENGTH(messages) AS message_count, "
+            "created_at, updated_at FROM ai_sessions WHERE user_id = :id ORDER BY created_at DESC LIMIT 20"
+        ),
+        {"id": child_id},
+    )).mappings().all()
+    ai_stats = (await sess.execute(
+        text(
+            "SELECT COUNT(*) AS total_sessions, COALESCE(SUM(JSON_LENGTH(messages)), 0) AS total_messages, "
+            "COALESCE(SUM(xp_earned), 0) AS total_ai_xp FROM ai_sessions WHERE user_id = :id"
+        ),
+        {"id": child_id},
+    )).mappings().first()
+    return {
+        "user": dict(user),
+        "activity": [dict(r) for r in activity],
+        "aiSessions": [dict(r) for r in ai_sessions],
+        "aiStats": dict(ai_stats) if ai_stats else {"total_sessions": 0, "total_messages": 0, "total_ai_xp": 0},
+    }
+
+
+@children_router.delete("/children/{child_id}", response_model=dict)
+async def remove_child(
+    child_id: uuid.UUID,
+    principal=ParentOnly,
+    sess: AsyncSession = Depends(get_session),
+):
+    await _owned_child(sess, principal.user_id, child_id)
+    await sess.execute(
+        text("DELETE FROM parent_children WHERE parent_id = :p AND child_id = :c"),
+        {"p": uuid.UUID(principal.user_id), "c": child_id},
+    )
+    # The parent created this account, so remove it entirely (cascades its data).
+    await sess.execute(text("DELETE FROM users WHERE id = :c"), {"c": child_id})
+    await sess.commit()
+    return {"message": "Child removed"}
+
+
 @children_router.post("/onboard-child", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def onboard_child(
     body: OnboardChildIn,

@@ -341,6 +341,7 @@ class _RecordPageState extends State<RecordPage> {
       final result = await widget.study.api.send(action.method,
         '${widget.feature.endpoint(widget.study)}/${Uri.encodeComponent('${widget.record['id']}')}${action.suffix}', {});
       if (mounted) { await resultDialog(context, result); }
+      if (action.method == 'DELETE') { if (mounted) Navigator.pop(context); return; }
       if (mounted && isPerson) {
         await load();
         if (result['user'] is Map && mounted) setState(() => detail = {...?detail, 'user': {...person, ...Map<String, dynamic>.from(result['user'])}});
