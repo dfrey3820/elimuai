@@ -26,6 +26,7 @@ ALLOWED_SETTING_KEYS = {
     "smtp_from_name", "smtp_from_email",
     "billing_quarterly_discount", "billing_semi_annual_discount", "billing_annual_discount",
     "billing_enabled",
+    "sales_agent_commission_rate",
 }
 MASKED_KEYS = {
     "mpesa_consumer_key", "mpesa_consumer_secret", "mpesa_passkey", "at_api_key", "smtp_pass",

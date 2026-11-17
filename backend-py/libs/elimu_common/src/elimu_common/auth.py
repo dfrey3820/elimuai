@@ -21,6 +21,7 @@ ROLE_HIERARCHY: dict[str, int] = {
     "student": 0,
     "parent": 1,
     "marketing_agent": 1,
+    "sales_agent": 1,
     "teacher": 2,
     "admin": 3,
     "super_admin": 4,

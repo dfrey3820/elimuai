@@ -13,6 +13,7 @@ from .reconciler import loop as reconciler_loop
 from .routers.agents import router as agents_router
 from .routers.billing import coupons_router, router
 from .routers.renew import router as renew_router
+from .routers.sales_agents import router as sales_agents_router
 from .routers.webhook import router as webhook_router
 from .scheduler import loop as reminders_loop
 
@@ -41,7 +42,7 @@ async def _on_shutdown(app):
 
 app = create_app(
     settings,
-    routers=[router, coupons_router, agents_router, webhook_router, renew_router],
+    routers=[router, coupons_router, agents_router, sales_agents_router, webhook_router, renew_router],
     on_startup=_on_startup,
     on_shutdown=_on_shutdown,
 )

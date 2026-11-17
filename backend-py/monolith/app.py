@@ -40,6 +40,7 @@ billing_routes = import_submodule("billing", "routers.billing")
 renew_routes = import_submodule("billing", "routers.renew")
 webhook_routes = import_submodule("billing", "routers.webhook")
 agents_routes = import_submodule("billing", "routers.agents")
+sales_agents_routes = import_submodule("billing", "routers.sales_agents")
 ai_routes = import_submodule("learning", "routers.ai")
 photoscan_routes = import_submodule("learning", "routers.photoscan")
 curriculum_routes = import_submodule("learning", "routers.curriculum")
@@ -153,6 +154,7 @@ for router in (
     renew_routes.router,
     webhook_routes.router,
     agents_routes.router,
+    sales_agents_routes.router,
     ai_routes.router,
     photoscan_routes.router,
     curriculum_routes.router,

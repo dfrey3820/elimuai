@@ -459,6 +459,13 @@ async def create_agent(
         user_row = (await sess.execute(
             text("SELECT id, name, email, role FROM users WHERE id = :u"), {"u": new_uid}
         )).mappings().first()
+    elif user_row["role"] not in ("admin", "super_admin"):
+        # Existing non-admin user becoming an agent: issue fresh temp credentials
+        # so they receive the same welcome email + forced-reset flow.
+        temp_password = _gen_temp_password()
+        await sess.execute(text(
+            "UPDATE users SET password_hash = :pw, must_reset_password = TRUE WHERE id = :u"
+        ), {"pw": _hash_password(temp_password), "u": user_row["id"]})
 
     # Uniqueness check
     exists = await _load_agent_by_user(sess, user_row["id"])

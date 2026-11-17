@@ -22,7 +22,7 @@ class UserListOut(BaseModel):
 
 
 class UserRoleIn(BaseModel):
-    role: str = Field(..., pattern=r"^(student|teacher|parent|admin|super_admin)$")
+    role: str = Field(..., pattern=r"^(student|teacher|parent|admin|super_admin|marketing_agent|sales_agent)$")
 
 
 class PasswordResetIn(BaseModel):
