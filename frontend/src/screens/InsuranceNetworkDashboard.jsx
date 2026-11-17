@@ -264,6 +264,86 @@ function CreateNetworkModal({ onClose, onCreated }) {
   );
 }
 
+function AddPartnerModal({ kind, endpoint, onClose, onCreated }) {
+  const isManager = kind === "manager";
+  const [form, setForm] = useState({
+    full_name: "", phone: "", mpesa_number: "", email: "",
+    employee_number: "", region: "", custom_code: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [created, setCreated] = useState(null);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await apiPost(endpoint, {
+        full_name: form.full_name.trim(),
+        phone: form.phone.trim(),
+        mpesa_number: (form.mpesa_number || form.phone).trim(),
+        email: form.email.trim() || null,
+        employee_number: form.employee_number.trim(),
+        region: form.region.trim() || null,
+        custom_code: form.custom_code.trim() || null,
+      });
+      setCreated(res);
+      onCreated();
+    } catch (e2) {
+      setError(e2.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 8px 30px rgba(0,0,0,0.25)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: BLUE }}>
+            {isManager ? "Add Network Admin (Manager)" : "Add Agent"}
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#888" }}>{"\u00D7"}</button>
+        </div>
+
+        {error && <div style={{ background: "#fdecec", color: "#c00", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 14 }}>{error}</div>}
+
+        {!created ? (
+          <form onSubmit={submit}>
+            <Field label="Full Name" required value={form.full_name} onChange={set("full_name")} />
+            <Field label="Phone" required type="tel" value={form.phone} onChange={set("phone")} placeholder="+2547..." />
+            <Field label="Employee Number" required value={form.employee_number} onChange={set("employee_number")} placeholder={isManager ? "e.g. MGR-001" : "e.g. AGT-1001"} />
+            <Field label="M-Pesa Number" type="tel" value={form.mpesa_number} onChange={set("mpesa_number")} placeholder="defaults to phone" />
+            <Field label="Email" type="email" value={form.email} onChange={set("email")} />
+            <Field label="Region" value={form.region} onChange={set("region")} />
+            <Field label="Custom Referral Code" value={form.custom_code} onChange={set("custom_code")} placeholder="auto-generated if blank" />
+            <button type="submit" disabled={saving} style={{ width: "100%", background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 700, fontSize: 14, cursor: saving ? "wait" : "pointer", opacity: saving ? 0.7 : 1 }}>
+              {saving ? "Saving..." : isManager ? "Add Manager" : "Add Agent"}
+            </button>
+          </form>
+        ) : (
+          <>
+            <div style={{ background: "#eefaf3", color: "#0a7d4d", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 14 }}>
+              {isManager ? "Manager added." : "Agent added."} Referral code: <b>{created.referral_code}</b>
+            </div>
+            {created.referral_link && (
+              <div style={{ background: "#f0f4ff", borderRadius: 8, padding: "10px 12px", fontSize: 12, marginBottom: 14, wordBreak: "break-all" }}>
+                {created.referral_link}
+              </div>
+            )}
+            <button onClick={onClose} style={{ width: "100%", background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "11px 0", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+              Done
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function InsuranceNetworkDashboard({ role = "network_head", partnerId, networkId }) {
   const [view, setView] = useState("network");
   const [networks, setNetworks] = useState([]);
@@ -275,6 +355,8 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [showAddManager, setShowAddManager] = useState(false);
+  const [showAddAgent, setShowAddAgent] = useState(false);
 
   const fetchNetworks = useCallback(async () => {
     setNetworks(await apiGet(`/api/admin/ch6/networks`));
@@ -367,6 +449,24 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
         <CreateNetworkModal onClose={() => setShowCreate(false)} onCreated={fetchNetworks} />
       )}
 
+      {showAddManager && selectedNetwork && (
+        <AddPartnerModal
+          kind="manager"
+          endpoint={`/api/admin/ch6/networks/${selectedNetwork}/managers`}
+          onClose={() => setShowAddManager(false)}
+          onCreated={() => { fetchManagers(selectedNetwork); fetchNetworks(); }}
+        />
+      )}
+
+      {showAddAgent && selectedManager && (
+        <AddPartnerModal
+          kind="agent"
+          endpoint={`/api/admin/ch6/managers/${selectedManager.manager_id}/agents`}
+          onClose={() => setShowAddAgent(false)}
+          onCreated={() => fetchAgents(selectedManager.manager_id)}
+        />
+      )}
+
       {role === "agent" && agentDetail && (
         <>
           <ReferralBox code={agentDetail.referral_code} link={agentDetail.referral_link} />
@@ -427,6 +527,11 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
       {role === "network_head" && view === "network" && selectedNetwork && (
         <>
           <Breadcrumb items={["All Networks", (currentNetwork && currentNetwork.network_name) || "Network"]} onClick={() => setSelectedNetwork(null)} />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={() => setShowAddManager(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              + Add Network Admin
+            </button>
+          </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
             <StatCard label="Managers" value={managers.length} color={PURPLE} />
             <StatCard label="Total Agents" value={managers.reduce((s, m) => s + m.team_size, 0)} color={GREEN} />
@@ -450,6 +555,11 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
             items={["All Networks", (currentNetwork && currentNetwork.network_name) || "Network", (selectedManager && selectedManager.manager_name) || "Manager"]}
             onClick={(i) => { if (i === 0) { setSelectedNetwork(null); } setView("network"); }}
           />
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={() => setShowAddAgent(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              + Add Agent
+            </button>
+          </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
             <StatCard label="Team Size" value={agents.length} color={PURPLE} />
             <StatCard label="Total Families" value={agents.reduce((s, a) => s + a.total_families_enrolled, 0)} color={GREEN} />

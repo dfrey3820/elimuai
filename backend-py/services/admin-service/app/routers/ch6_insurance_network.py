@@ -35,6 +35,16 @@ class CreateNetworkRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class AddPartnerRequest(BaseModel):
+    full_name: str
+    phone: str
+    employee_number: str
+    mpesa_number: Optional[str] = None
+    email: Optional[str] = None
+    region: Optional[str] = None
+    custom_code: Optional[str] = None
+
+
 class CH6ConversionRequest(BaseModel):
     subscriber_id: str
     agent_referral_code: str
@@ -500,4 +510,143 @@ async def get_agent_detail(agent_id: str, sess: AsyncSession = Depends(get_sessi
         "total_conversions": r.total_conversions,
         "pending_kes": float(r.pending_kes), "paid_kes": float(r.paid_kes),
         "status": r.status,
+    }
+
+
+# ─── Admin: add a single manager (network admin) to a network ──────────────
+@router.post("/api/admin/ch6/networks/{network_id}/managers", dependencies=[AdminOnly])
+async def add_manager(
+    network_id: str,
+    payload: AddPartnerRequest,
+    sess: AsyncSession = Depends(get_session),
+):
+    """Add one manager (a.k.a. the network admin) directly to a network,
+    linking them under the network head. Mirrors bulk-import PASS 1."""
+    net_result = await sess.execute(
+        text("SELECT id, head_partner_id FROM insurance_networks WHERE id = :id"),
+        {"id": network_id},
+    )
+    network = net_result.fetchone()
+    if not network:
+        raise HTTPException(status_code=404, detail="Network not found")
+
+    full_name = payload.full_name.strip()
+    phone = payload.phone.strip()
+    employee_number = payload.employee_number.strip()
+    if not full_name or not phone or not employee_number:
+        raise HTTPException(status_code=400, detail="full_name, phone and employee_number are required")
+
+    dup = await sess.execute(
+        text("SELECT id FROM partners WHERE employee_number = :emp"),
+        {"emp": employee_number},
+    )
+    if dup.fetchone():
+        raise HTTPException(status_code=409, detail=f"Employee number '{employee_number}' already exists")
+
+    head_partner_id = str(network.head_partner_id)
+    partner_id = str(uuid.uuid4())
+    await sess.execute(text("""
+        INSERT INTO partners
+          (id, full_name, email, phone, mpesa_number, channel_type,
+           region, employee_number, parent_partner_id, network_id,
+           team_code, insurance_company)
+        VALUES
+          (:id, :name, :email, :phone, :mpesa, 'insurance_manager',
+           :region, :emp, :head_id, :network_id,
+           :team_code, (SELECT insurance_company FROM insurance_networks WHERE id = :network_id))
+    """), {
+        "id": partner_id, "name": full_name, "email": payload.email,
+        "phone": phone, "mpesa": (payload.mpesa_number or phone).strip(),
+        "region": payload.region, "emp": employee_number,
+        "head_id": head_partner_id, "network_id": network_id,
+        "team_code": f"TEAM-{employee_number}",
+    })
+
+    code = (payload.custom_code or "").strip() or f"MGR-{full_name.upper().split()[0][:6]}-{str(uuid.uuid4())[:4].upper()}"
+    await sess.execute(text("""
+        INSERT INTO referral_codes (id, partner_id, code, channel_type)
+        VALUES (:id, :pid, :code, 'insurance_manager')
+    """), {"id": str(uuid.uuid4()), "pid": partner_id, "code": code})
+
+    await sess.execute(text("""
+        UPDATE insurance_networks SET
+          total_managers = (SELECT COUNT(*) FROM partners WHERE network_id = :nid AND channel_type = 'insurance_manager')
+        WHERE id = :nid
+    """), {"nid": network_id})
+    await sess.commit()
+
+    return {
+        "manager_id": partner_id,
+        "team_code": f"TEAM-{employee_number}",
+        "referral_code": code,
+        "referral_link": f"{BASE_URL}/?ref={code}",
+        "message": "Manager added to network",
+    }
+
+
+# ─── Admin: add a single agent to a manager's team ─────────────────────────
+@router.post("/api/admin/ch6/managers/{manager_id}/agents", dependencies=[AdminOnly])
+async def add_agent(
+    manager_id: str,
+    payload: AddPartnerRequest,
+    sess: AsyncSession = Depends(get_session),
+):
+    """Add one agent directly under a manager. Mirrors bulk-import PASS 2."""
+    mgr_result = await sess.execute(
+        text("SELECT id, network_id FROM partners WHERE id = :id AND channel_type = 'insurance_manager'"),
+        {"id": manager_id},
+    )
+    manager = mgr_result.fetchone()
+    if not manager:
+        raise HTTPException(status_code=404, detail="Manager not found")
+
+    full_name = payload.full_name.strip()
+    phone = payload.phone.strip()
+    employee_number = payload.employee_number.strip()
+    if not full_name or not phone or not employee_number:
+        raise HTTPException(status_code=400, detail="full_name, phone and employee_number are required")
+
+    dup = await sess.execute(
+        text("SELECT id FROM partners WHERE employee_number = :emp"),
+        {"emp": employee_number},
+    )
+    if dup.fetchone():
+        raise HTTPException(status_code=409, detail=f"Employee number '{employee_number}' already exists")
+
+    network_id = str(manager.network_id)
+    partner_id = str(uuid.uuid4())
+    await sess.execute(text("""
+        INSERT INTO partners
+          (id, full_name, email, phone, mpesa_number, channel_type,
+           region, employee_number, parent_partner_id, network_id,
+           insurance_company)
+        VALUES
+          (:id, :name, :email, :phone, :mpesa, 'insurance_agent',
+           :region, :emp, :mgr_id, :network_id,
+           (SELECT insurance_company FROM insurance_networks WHERE id = :network_id))
+    """), {
+        "id": partner_id, "name": full_name, "email": payload.email,
+        "phone": phone, "mpesa": (payload.mpesa_number or phone).strip(),
+        "region": payload.region, "emp": employee_number,
+        "mgr_id": manager_id, "network_id": network_id,
+    })
+
+    code = (payload.custom_code or "").strip() or f"AGT-{full_name.upper().split()[0][:6]}-{str(uuid.uuid4())[:4].upper()}"
+    await sess.execute(text("""
+        INSERT INTO referral_codes (id, partner_id, code, channel_type)
+        VALUES (:id, :pid, :code, 'insurance_agent')
+    """), {"id": str(uuid.uuid4()), "pid": partner_id, "code": code})
+
+    await sess.execute(text("""
+        UPDATE insurance_networks SET
+          total_agents = (SELECT COUNT(*) FROM partners WHERE network_id = :nid AND channel_type = 'insurance_agent')
+        WHERE id = :nid
+    """), {"nid": network_id})
+    await sess.commit()
+
+    return {
+        "agent_id": partner_id,
+        "referral_code": code,
+        "referral_link": f"{BASE_URL}/?ref={code}",
+        "message": "Agent added to team",
     }
