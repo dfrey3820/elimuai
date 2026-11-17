@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback } from "react";
 import { apiGet, apiPost, apiPatch } from "@/utils/api";
 import {
   Briefcase, Plus, Search, RefreshCw, AlertTriangle,
-  X, Wallet, Ban, ArrowLeft, Users,
+  X, Wallet, Ban, ArrowLeft, Users, Mail,
 } from "lucide-react";
 
 const fmtMoney = (n, cur = "KES") =>
@@ -241,6 +241,13 @@ export default function NetworkAgentsAdmin() {
     catch (e) { if (typeof window !== "undefined") window.alert(e?.message || "Update failed"); }
   };
 
+  const resendCredentials = async (a) => {
+    try {
+      const r = await apiPost(`/api/agents/${a.id}/resend-credentials`, {});
+      if (typeof window !== "undefined") window.alert(r?.message || "Credentials resent.");
+    } catch (e) { if (typeof window !== "undefined") window.alert(e?.message || "Could not resend."); }
+  };
+
   if (view === "detail" && detail) {
     return (
       <div className="space-y-5">
@@ -315,6 +322,7 @@ export default function NetworkAgentsAdmin() {
                   <td className={tdCls}>
                     <div className="flex gap-1.5">
                       <button onClick={() => openDetail(a)} className="px-2.5 py-1 rounded-lg border border-slate-200 cursor-pointer bg-white text-slate-600 text-[11px] font-bold flex items-center gap-1"><Users size={12} /> View</button>
+                      <button onClick={() => resendCredentials(a)} className="px-2.5 py-1 rounded-lg border border-slate-200 cursor-pointer bg-white text-slate-600 text-[11px] font-bold flex items-center gap-1"><Mail size={12} /> Resend</button>
                       <button onClick={() => toggleActive(a)} className="px-2.5 py-1 rounded-lg border border-slate-200 cursor-pointer bg-white text-slate-600 text-[11px] font-bold">{a.is_active ? "Deactivate" : "Activate"}</button>
                     </div>
                   </td>

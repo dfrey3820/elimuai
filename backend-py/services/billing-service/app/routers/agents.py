@@ -544,6 +544,38 @@ async def create_agent(
     return {"agent": _serialize_agent(dict(row))}
 
 
+@router.post("/{agent_id}/resend-credentials", dependencies=[AdminOnly])
+async def resend_agent_credentials(
+    agent_id: uuid.UUID,
+    sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
+):
+    """Reset an agent's password to a fresh temp value and re-send the welcome email."""
+    row = (await sess.execute(text(
+        "SELECT ma.tier, u.id AS user_id, u.email, u.name "
+        "FROM marketing_agents ma JOIN users u ON u.id = ma.user_id WHERE ma.id = :id"
+    ), {"id": agent_id})).mappings().first()
+    if not row:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Agent not found")
+    if not row["email"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "This agent has no email on file.")
+    temp_password = _gen_temp_password()
+    await sess.execute(text(
+        "UPDATE users SET password_hash = :pw, must_reset_password = TRUE WHERE id = :u"
+    ), {"pw": _hash_password(temp_password), "u": row["user_id"]})
+    await sess.commit()
+    await bus.publish("user.onboarded", {
+        "user_id": str(row["user_id"]),
+        "email": row["email"],
+        "name": row["name"] or "there",
+        "role": "network manager" if row["tier"] == "manager" else "network agent",
+        "school_name": "the ElimuAI Network",
+        "temp_password": temp_password,
+        "resent": True,
+    })
+    return {"message": f"Credentials resent to {row['email']}."}
+
+
 @router.patch("/{agent_id}", dependencies=[AdminOnly])
 async def update_agent(agent_id: uuid.UUID, body: AgentUpdateIn, sess: AsyncSession = Depends(get_session)):
     updates: dict = {}
