@@ -10,6 +10,7 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { getAuthHeader } from "../utils/auth";
+import AgentSellModal from "@/screens/AgentSellModal";
 
 const API_BASE = typeof window !== "undefined"
   ? (process.env.NEXT_PUBLIC_API_BASE_URL || "")
@@ -367,6 +368,7 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
   const [showCreate, setShowCreate] = useState(false);
   const [showAddManager, setShowAddManager] = useState(false);
   const [showAddAgent, setShowAddAgent] = useState(false);
+  const [showSell, setShowSell] = useState(false);
 
   const fetchNetworks = useCallback(async () => {
     setNetworks(await apiGet(`/api/admin/ch6/networks`));
@@ -484,6 +486,10 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
         <CreateNetworkModal onClose={() => setShowCreate(false)} onCreated={fetchNetworks} />
       )}
 
+      {showSell && (
+        <AgentSellModal onClose={() => setShowSell(false)} onSold={refresh} />
+      )}
+
       {showAddManager && selectedNetwork && (
         <AddPartnerModal
           kind="manager"
@@ -504,6 +510,11 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
 
       {role === "agent" && agentDetail && (
         <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={() => setShowSell(true)} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              + Add New Customer
+            </button>
+          </div>
           <ReferralBox code={agentDetail.referral_code} link={agentDetail.referral_link} />
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
             <StatCard label="Families Enrolled" value={agentDetail.total_families_enrolled} color={GREEN} />
@@ -519,6 +530,11 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
 
       {role === "manager" && view === "manager" && (
         <>
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <button onClick={() => setShowSell(true)} style={{ background: GREEN, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              + Add New Customer
+            </button>
+          </div>
           {me?.referral_code && (
             <>
               <ReferralBox code={me.referral_code} link={me.referral_link} />

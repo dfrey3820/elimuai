@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import json
+import secrets
 import time
 import uuid
 from datetime import datetime
 from decimal import Decimal
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response as FastAPIResponse
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +19,7 @@ from elimu_common.auth import decode_jwt
 from elimu_common.ch6_commission import resolve_agent_by_code
 
 from ..coupons import CouponError, validate_coupon
-from ..deps import AdminOnly, current_principal, get_bullmq, get_principal, get_session, settings
+from ..deps import AdminOnly, current_principal, get_bullmq, get_event_bus, get_principal, get_session, settings
 from ..gateway_client import PaymentGatewayClient, PaymentGatewayError
 from ..models import Coupon, CouponUsage, Invoice, Payment
 from ..pdf import generate_invoice_pdf
@@ -173,6 +176,190 @@ async def pricing_role(role: str, sess: AsyncSession = Depends(get_session)):
     if role not in ("student", "teacher", "parent", "school"):
         role = "student"
     return {"role": role, "cycles": await get_all_cycle_prices(sess, role), "currency": "KES"}
+
+
+# ─── Agent point-of-sale: sell to a customer & STK-push their phone ───────────
+def _gen_temp_password(n: int = 10) -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(n))
+
+
+def _hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+class AgentSellIn(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    customer_name: str = Field(min_length=2, max_length=120,
+                               validation_alias=AliasChoices("customer_name", "customerName", "name"))
+    customer_email: EmailStr | None = Field(default=None,
+                                            validation_alias=AliasChoices("customer_email", "customerEmail", "email"))
+    customer_phone: str | None = Field(default=None,
+                                       validation_alias=AliasChoices("customer_phone", "customerPhone"))
+    national_id: str | None = Field(default=None,
+                                    validation_alias=AliasChoices("national_id", "nationalId", "idNumber"))
+    customer_type: str = Field(default="student",
+                               validation_alias=AliasChoices("customer_type", "customerType", "role"))
+    billing_cycle: str = Field(default="monthly",
+                               validation_alias=AliasChoices("billing_cycle", "billingCycle"))
+    mpesa_phone: str = Field(validation_alias=AliasChoices("mpesa_phone", "mpesaPhone", "phone"))
+
+
+async def _selling_partner(sess: AsyncSession, user_id: str) -> dict | None:
+    """The CH6 insurance partner (manager/agent) selling, with their referral code."""
+    return (await sess.execute(text(
+        """
+        SELECT p.id, p.channel_type,
+               (SELECT code FROM referral_codes WHERE partner_id = p.id LIMIT 1) AS code
+        FROM partners p
+        WHERE p.user_id = :u
+          AND p.channel_type IN ('insurance_manager', 'insurance_agent')
+        LIMIT 1
+        """
+    ), {"u": user_id})).mappings().first()
+
+
+@router.post("/agent/sell")
+async def agent_sell(
+    body: AgentSellIn,
+    principal=current_principal,
+    sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
+):
+    """An insurance agent/manager sells a subscription to a customer in person:
+    create/find the customer, raise a pending payment attributed to the seller's
+    referral code, and trigger an M-Pesa STK push to the customer's phone. When
+    the payment completes, the CH6 commission is credited automatically."""
+    partner = await _selling_partner(sess, principal.user_id)
+    if not partner:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only insurance agents/managers can sell here")
+    if not partner["code"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your account has no referral code; contact your administrator")
+
+    role = body.customer_type if body.customer_type in ("student", "teacher", "parent") else "student"
+    plan = role
+
+    # Find or create the customer account.
+    temp_password: str | None = None
+    customer_id: str
+    existing = None
+    if body.customer_email:
+        existing = (await sess.execute(
+            text("SELECT id FROM users WHERE email = :e"), {"e": body.customer_email}
+        )).scalar_one_or_none()
+    if existing:
+        customer_id = str(existing)
+    else:
+        if not body.customer_email:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Customer email is required to create their account")
+        temp_password = _gen_temp_password()
+        customer_id = str(uuid.uuid4())
+        await sess.execute(text(
+            """
+            INSERT INTO users (id, name, email, phone, password_hash, must_reset_password,
+                               role, is_active, email_verified, onboarded)
+            VALUES (:id, :n, :e, :p, :pw, TRUE, :r, TRUE, FALSE, FALSE)
+            """
+        ), {"id": customer_id, "n": body.customer_name, "e": body.customer_email,
+            "p": body.customer_phone, "pw": _hash_password(temp_password), "r": role})
+
+    price = await calculate_cycle_price(sess, plan, body.billing_cycle)
+    final_amount = max(Decimal("1"), Decimal(str(price["total"])))
+    reference = f"ELIMU-{int(time.time() * 1000)}-{customer_id[:8].upper()}"
+
+    inv = await create_invoice(
+        sess, user_id=uuid.UUID(customer_id), plan=plan, billing_cycle=body.billing_cycle,
+        amount=final_amount, subtotal=Decimal(str(price["total"])),
+    )
+    meta: dict = {
+        "agent_referral_code": partner["code"],
+        "agent_partner_id": str(partner["id"]),
+        "sold_by_agent": True,
+    }
+    if body.national_id:
+        meta["customer_national_id"] = body.national_id
+    payment = Payment(
+        user_id=uuid.UUID(customer_id), plan=plan, billing_cycle=body.billing_cycle,
+        amount=final_amount, currency=price["currency"], method="mpesa", status="pending",
+        phone_number=body.mpesa_phone, reference=reference, invoice_id=inv.id, metadata_json=meta,
+    )
+    sess.add(payment)
+    await sess.flush()
+    await sess.execute(update(Invoice).where(Invoice.id == inv.id).values(payment_id=payment.id))
+    await sess.commit()
+
+    # Email login credentials for brand-new accounts.
+    if temp_password and body.customer_email:
+        await bus.publish("user.onboarded", {
+            "user_id": customer_id, "email": body.customer_email, "name": body.customer_name,
+            "role": role, "school_name": "ElimuAI", "temp_password": temp_password,
+        })
+
+    if not (settings.payment_gateway_url and settings.payment_gateway_api_key and settings.payment_gateway_api_secret):
+        await sess.execute(
+            text("UPDATE payments SET status='failed', "
+                 "metadata = JSON_MERGE_PATCH(COALESCE(metadata,'{}'), :m) WHERE id = :id"),
+            {"id": payment.id, "m": json.dumps({"error": "gateway_misconfigured"})},
+        )
+        await sess.commit()
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "Payment gateway is not configured. Contact support.")
+
+    gateway = PaymentGatewayClient(
+        settings.payment_gateway_url, settings.payment_gateway_api_key, settings.payment_gateway_api_secret,
+    )
+    try:
+        gw = await gateway.stk_push(
+            phone_number=body.mpesa_phone, amount=float(final_amount), reference=reference,
+            description=f"ElimuAI {plan} Plan ({body.billing_cycle})",
+        )
+    except PaymentGatewayError as exc:
+        await sess.execute(
+            text("UPDATE payments SET status='failed', "
+                 "metadata = JSON_MERGE_PATCH(COALESCE(metadata,'{}'), :m) WHERE id = :id"),
+            {"id": payment.id, "m": json.dumps({"error": "gateway_error", "gateway_message": str(exc)})},
+        )
+        await sess.commit()
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Payment gateway rejected the request: {exc}") from exc
+
+    _d = gw.get("data") if isinstance(gw.get("data"), dict) else {}
+    gw_txn = (gw.get("transactionId") or gw.get("checkoutRequestId") or gw.get("CheckoutRequestID")
+              or gw.get("reference") or gw.get("id") or _d.get("transactionId") or _d.get("reference"))
+    if gw_txn:
+        await sess.execute(
+            text("UPDATE payments SET mpesa_checkout_id = :c WHERE id = :id"),
+            {"c": str(gw_txn), "id": payment.id},
+        )
+        await sess.commit()
+
+    return {
+        "payment_id": str(payment.id),
+        "customer_id": customer_id,
+        "reference": reference,
+        "amount": float(final_amount),
+        "currency": price["currency"],
+        "status": "pending",
+        "message": "STK push sent to the customer's phone",
+    }
+
+
+@router.get("/agent/sale-status/{payment_id}")
+async def agent_sale_status(
+    payment_id: uuid.UUID,
+    principal=current_principal,
+    sess: AsyncSession = Depends(get_session),
+):
+    """Poll a sale's payment status — only the selling partner may read it."""
+    partner_id = (await sess.execute(
+        text("SELECT id FROM partners WHERE user_id = :u LIMIT 1"), {"u": principal.user_id}
+    )).scalar_one_or_none()
+    p = (await sess.execute(select(Payment).where(Payment.id == payment_id))).scalar_one_or_none()
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Payment not found")
+    meta = p.metadata_json or {}
+    if not partner_id or str(meta.get("agent_partner_id")) != str(partner_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your sale")
+    return {"payment_id": str(p.id), "status": p.status, "amount": float(p.amount), "currency": p.currency}
 
 
 @router.post("/mpesa/initiate", response_model=MpesaInitiateOut)

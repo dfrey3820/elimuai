@@ -63,7 +63,11 @@ def calculate_ch6_split(
 
 
 async def resolve_agent_by_code(sess: AsyncSession, code: str) -> Any | None:
-    """Return the agent partner row for ``code`` or ``None`` if not found."""
+    """Return the selling partner row for ``code`` or ``None`` if not found.
+
+    Accepts both agent and manager referral codes — a manager may sell directly
+    (not only oversee a team), in which case they are the direct seller.
+    """
     if not code:
         return None
     row = (await sess.execute(text("""
@@ -72,7 +76,7 @@ async def resolve_agent_by_code(sess: AsyncSession, code: str) -> Any | None:
           JOIN partners p ON p.id = rc.partner_id
          WHERE rc.code = :code
            AND rc.is_active = TRUE
-           AND rc.channel_type = 'insurance_agent'
+           AND rc.channel_type IN ('insurance_agent', 'insurance_manager')
     """), {"code": code.upper().strip()})).fetchone()
     return row
 
@@ -110,18 +114,28 @@ async def credit_ch6_conversion(
         return {"status": "already_processed", "conversion_id": str(existing.id)}
 
     manager = None
-    if agent.parent_partner_id:
-        manager = (await sess.execute(
-            text("SELECT id, full_name, status, parent_partner_id FROM partners WHERE id = :id"),
-            {"id": str(agent.parent_partner_id)},
-        )).fetchone()
-
     network_head = None
-    if manager and manager.parent_partner_id:
-        network_head = (await sess.execute(
-            text("SELECT id, full_name, status FROM partners WHERE id = :id"),
-            {"id": str(manager.parent_partner_id)},
-        )).fetchone()
+    # A manager selling directly is the seller themselves — credit them at the
+    # agent (direct-seller) level, skip the manager-override tier, and their
+    # parent is the network head. An agent sale keeps the full agent→manager→head chain.
+    if getattr(agent, "channel_type", "insurance_agent") == "insurance_manager":
+        if agent.parent_partner_id:
+            network_head = (await sess.execute(
+                text("SELECT id, full_name, status FROM partners WHERE id = :id"),
+                {"id": str(agent.parent_partner_id)},
+            )).fetchone()
+    else:
+        if agent.parent_partner_id:
+            manager = (await sess.execute(
+                text("SELECT id, full_name, status, parent_partner_id FROM partners WHERE id = :id"),
+                {"id": str(agent.parent_partner_id)},
+            )).fetchone()
+
+        if manager and manager.parent_partner_id:
+            network_head = (await sess.execute(
+                text("SELECT id, full_name, status FROM partners WHERE id = :id"),
+                {"id": str(manager.parent_partner_id)},
+            )).fetchone()
 
     gm = (await sess.execute(
         text("SELECT id FROM partners WHERE notes LIKE '%GM rider%' LIMIT 1")
