@@ -203,6 +203,11 @@ class AgentSellIn(BaseModel):
     billing_cycle: str = Field(default="monthly",
                                validation_alias=AliasChoices("billing_cycle", "billingCycle"))
     mpesa_phone: str = Field(validation_alias=AliasChoices("mpesa_phone", "mpesaPhone", "phone"))
+    # School sales only (customer_type == "school"): the institution + its admin.
+    school_name: str | None = Field(default=None, validation_alias=AliasChoices("school_name", "schoolName"))
+    county: str | None = None
+    curriculum: str = "CBC"
+    country: str = "KE"
 
 
 async def _selling_partner(sess: AsyncSession, user_id: str) -> dict | None:
@@ -236,10 +241,11 @@ async def agent_sell(
     if not partner["code"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your account has no referral code; contact your administrator")
 
-    role = body.customer_type if body.customer_type in ("student", "teacher", "parent") else "student"
-    plan = role
+    is_school = body.customer_type == "school"
+    role = "admin" if is_school else (body.customer_type if body.customer_type in ("student", "teacher", "parent") else "student")
+    plan = "school" if is_school else role
 
-    # Find or create the customer account.
+    # Find or create the customer account (for a school sale this is the school admin).
     temp_password: str | None = None
     customer_id: str
     existing = None
@@ -247,8 +253,32 @@ async def agent_sell(
         existing = (await sess.execute(
             text("SELECT id FROM users WHERE email = :e"), {"e": body.customer_email}
         )).scalar_one_or_none()
+
     if existing:
         customer_id = str(existing)
+    elif is_school:
+        if not body.customer_email:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Admin email is required to create the school account")
+        if not (body.school_name or "").strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "School name is required")
+        new_school_id = str(uuid.uuid4())
+        await sess.execute(text(
+            """
+            INSERT INTO schools (id, name, country, county, curriculum, email, phone, plan, is_active)
+            VALUES (:id, :n, :c, :co, :cur, :e, :p, 'free', TRUE)
+            """
+        ), {"id": new_school_id, "n": body.school_name.strip(), "c": body.country, "co": body.county,
+            "cur": body.curriculum, "e": body.customer_email, "p": body.customer_phone})
+        temp_password = _gen_temp_password()
+        customer_id = str(uuid.uuid4())
+        await sess.execute(text(
+            """
+            INSERT INTO users (id, school_id, name, email, phone, password_hash, must_reset_password,
+                               role, country, curriculum, is_active, email_verified, onboarded)
+            VALUES (:id, :sid, :n, :e, :p, :pw, TRUE, 'admin', :c, :cur, TRUE, FALSE, FALSE)
+            """
+        ), {"id": customer_id, "sid": new_school_id, "n": body.customer_name, "e": body.customer_email,
+            "p": body.customer_phone, "pw": _hash_password(temp_password), "c": body.country, "cur": body.curriculum})
     else:
         if not body.customer_email:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Customer email is required to create their account")
@@ -292,7 +322,8 @@ async def agent_sell(
     if temp_password and body.customer_email:
         await bus.publish("user.onboarded", {
             "user_id": customer_id, "email": body.customer_email, "name": body.customer_name,
-            "role": role, "school_name": "ElimuAI", "temp_password": temp_password,
+            "role": role, "school_name": body.school_name.strip() if (is_school and body.school_name) else "ElimuAI",
+            "temp_password": temp_password,
         })
 
     if not (settings.payment_gateway_url and settings.payment_gateway_api_key and settings.payment_gateway_api_secret):

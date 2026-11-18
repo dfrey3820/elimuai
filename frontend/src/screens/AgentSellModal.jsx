@@ -9,13 +9,14 @@ import { useState, useEffect, useRef } from "react";
 import { apiGet, apiPost } from "@/utils/api";
 import {
   X, UserPlus, GraduationCap, BookOpen, Users, ArrowRight, ArrowLeft,
-  Smartphone, CheckCircle, AlertTriangle, Loader,
+  Smartphone, CheckCircle, AlertTriangle, Loader, School as SchoolIcon,
 } from "lucide-react";
 
 const TYPES = [
   { k: "student", label: "Student", icon: GraduationCap },
   { k: "parent", label: "Parent", icon: Users },
   { k: "teacher", label: "Teacher", icon: BookOpen },
+  { k: "school", label: "School", icon: SchoolIcon },
 ];
 const CYCLES = [
   { k: "monthly", label: "Monthly" },
@@ -32,7 +33,7 @@ const cycleTotal = (info) => (typeof info === "number" ? info : (info?.total ?? 
 export default function AgentSellModal({ onClose, onSold }) {
   const [step, setStep] = useState(1); // 1 type, 2 kyc, 3 plan, 4 result
   const [type, setType] = useState("student");
-  const [kyc, setKyc] = useState({ name: "", email: "", phone: "", national_id: "" });
+  const [kyc, setKyc] = useState({ name: "", email: "", phone: "", national_id: "", school_name: "", county: "", curriculum: "CBC" });
   const [cycle, setCycle] = useState("monthly");
   const [pricing, setPricing] = useState(null);
   const [mpesaPhone, setMpesaPhone] = useState("");
@@ -71,8 +72,14 @@ export default function AgentSellModal({ onClose, onSold }) {
 
   const goKyc = () => setStep(2);
   const goPlan = () => {
-    if (!kyc.name.trim()) return setError("Customer name is required.");
-    if (!kyc.email.trim()) return setError("Customer email is required (for their login).");
+    if (type === "school") {
+      if (!kyc.school_name.trim()) return setError("School name is required.");
+      if (!kyc.name.trim()) return setError("Admin name is required.");
+      if (!kyc.email.trim()) return setError("Admin email is required (for their login).");
+    } else {
+      if (!kyc.name.trim()) return setError("Customer name is required.");
+      if (!kyc.email.trim()) return setError("Customer email is required (for their login).");
+    }
     setError("");
     setMpesaPhone(kyc.phone || "");
     setStep(3);
@@ -91,6 +98,11 @@ export default function AgentSellModal({ onClose, onSold }) {
         customer_type: type,
         billing_cycle: cycle,
         mpesa_phone: mpesaPhone.trim(),
+        ...(type === "school" ? {
+          school_name: kyc.school_name.trim(),
+          county: kyc.county.trim() || undefined,
+          curriculum: kyc.curriculum || "CBC",
+        } : {}),
       });
       setSale(d);
       setSaleStatus("pending");
@@ -103,7 +115,7 @@ export default function AgentSellModal({ onClose, onSold }) {
   };
 
   const reset = () => {
-    setStep(1); setType("student"); setKyc({ name: "", email: "", phone: "", national_id: "" });
+    setStep(1); setType("student"); setKyc({ name: "", email: "", phone: "", national_id: "", school_name: "", county: "", curriculum: "CBC" });
     setCycle("monthly"); setPricing(null); setMpesaPhone(""); setSale(null); setSaleStatus("pending"); setError("");
   };
 
@@ -145,10 +157,31 @@ export default function AgentSellModal({ onClose, onSold }) {
 
         {step === 2 && (
           <div className="space-y-4">
-            <div><label className={labelCls}>Full name (KYC)</label><input className={inputCls} value={kyc.name} onChange={(e) => setKyc({ ...kyc, name: e.target.value })} placeholder="Jane Wanjiku" /></div>
-            <div><label className={labelCls}>Email</label><input className={inputCls} type="email" value={kyc.email} onChange={(e) => setKyc({ ...kyc, email: e.target.value })} placeholder="jane@example.com" /></div>
-            <div><label className={labelCls}>Phone</label><input className={inputCls} value={kyc.phone} onChange={(e) => setKyc({ ...kyc, phone: e.target.value })} placeholder="2547XXXXXXXX" /></div>
-            <div><label className={labelCls}>National ID (optional)</label><input className={inputCls} value={kyc.national_id} onChange={(e) => setKyc({ ...kyc, national_id: e.target.value })} placeholder="e.g. 12345678" /></div>
+            {type === "school" ? (
+              <>
+                <div><label className={labelCls}>School name (KYC)</label><input className={inputCls} value={kyc.school_name} onChange={(e) => setKyc({ ...kyc, school_name: e.target.value })} placeholder="Nairobi Primary School" /></div>
+                <div><label className={labelCls}>Admin name</label><input className={inputCls} value={kyc.name} onChange={(e) => setKyc({ ...kyc, name: e.target.value })} placeholder="Head teacher name" /></div>
+                <div><label className={labelCls}>Admin email</label><input className={inputCls} type="email" value={kyc.email} onChange={(e) => setKyc({ ...kyc, email: e.target.value })} placeholder="admin@school.ac.ke" /></div>
+                <div><label className={labelCls}>Admin phone</label><input className={inputCls} value={kyc.phone} onChange={(e) => setKyc({ ...kyc, phone: e.target.value })} placeholder="2547XXXXXXXX" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className={labelCls}>County</label><input className={inputCls} value={kyc.county} onChange={(e) => setKyc({ ...kyc, county: e.target.value })} placeholder="Nairobi" /></div>
+                  <div><label className={labelCls}>Curriculum</label>
+                    <select className={inputCls} value={kyc.curriculum} onChange={(e) => setKyc({ ...kyc, curriculum: e.target.value })}>
+                      <option value="CBC">CBC (Kenya)</option>
+                      <option value="NECTA">NECTA (Tanzania)</option>
+                      <option value="NCDC">NCDC (Uganda)</option>
+                    </select>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div><label className={labelCls}>Full name (KYC)</label><input className={inputCls} value={kyc.name} onChange={(e) => setKyc({ ...kyc, name: e.target.value })} placeholder="Jane Wanjiku" /></div>
+                <div><label className={labelCls}>Email</label><input className={inputCls} type="email" value={kyc.email} onChange={(e) => setKyc({ ...kyc, email: e.target.value })} placeholder="jane@example.com" /></div>
+                <div><label className={labelCls}>Phone</label><input className={inputCls} value={kyc.phone} onChange={(e) => setKyc({ ...kyc, phone: e.target.value })} placeholder="2547XXXXXXXX" /></div>
+                <div><label className={labelCls}>National ID (optional)</label><input className={inputCls} value={kyc.national_id} onChange={(e) => setKyc({ ...kyc, national_id: e.target.value })} placeholder="e.g. 12345678" /></div>
+              </>
+            )}
             <div className="flex gap-2 pt-1">
               <button onClick={back} className="px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-600 text-[13px] font-body font-bold cursor-pointer flex items-center gap-1.5"><ArrowLeft size={14} /> Back</button>
               <button onClick={goPlan} className="flex-1 py-2.5 rounded-xl border-none cursor-pointer bg-emerald-600 text-white text-[13px] font-body font-black hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5">Continue <ArrowRight size={14} /></button>
@@ -200,7 +233,7 @@ export default function AgentSellModal({ onClose, onSold }) {
               <>
                 <CheckCircle size={38} className="text-emerald-600 mx-auto mb-3" />
                 <h4 className="text-slate-900 text-base font-heading font-black mb-1">Sale complete!</h4>
-                <p className="text-slate-500 text-[13px] font-body mb-5">{kyc.name}'s {type} plan is active and credited to you.</p>
+                <p className="text-slate-500 text-[13px] font-body mb-5">{type === "school" ? `${kyc.school_name}'s school plan` : `${kyc.name}'s ${type} plan`} is active and credited to you.</p>
                 <div className="flex gap-2">
                   <button onClick={() => { reset(); }} className="flex-1 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-700 text-[13px] font-body font-bold cursor-pointer">New sale</button>
                   <button onClick={() => { onSold?.(); onClose(); }} className="flex-1 py-2.5 rounded-xl border-none bg-emerald-600 text-white text-[13px] font-body font-black cursor-pointer">Done</button>
