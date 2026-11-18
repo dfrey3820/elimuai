@@ -456,25 +456,29 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
 
   const currentNetwork = networks.find(n => n.network_id === selectedNetwork);
 
-  return (
-    <div style={{ fontFamily: "Arial, sans-serif", background: "#f4f6fb", minHeight: "100vh", padding: "24px 28px" }}>
+  const isStandalone = role === "manager" || role === "agent";
+  const headerTitle = role === "manager" ? "My Team" : role === "agent" ? "My Dashboard" : "Insurance Agent Network";
+  const refresh = () => {
+    if (role === "agent" && partnerId) fetchAgentDetail(partnerId);
+    else if (role === "manager" && partnerId) fetchAgents(partnerId);
+    else fetchNetworks();
+  };
 
-      <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>Insurance Agent Network</div>
-          <div style={{ fontSize: 13, color: "#888" }}>CH6 - Continuous commission tracker</div>
+  const body = (
+    <>
+      {!isStandalone && (
+        <div style={{ marginBottom: 20, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: BLUE }}>Insurance Agent Network</div>
+            <div style={{ fontSize: 13, color: "#888" }}>CH6 - Continuous commission tracker</div>
+          </div>
+          {role === "network_head" && view === "network" && !selectedNetwork && (
+            <button onClick={() => setShowCreate(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              + New Network
+            </button>
+          )}
         </div>
-        {role === "network_head" && view === "network" && !selectedNetwork && (
-          <button onClick={() => setShowCreate(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-            + New Network
-          </button>
-        )}
-        {onLogout && (
-          <button onClick={onLogout} style={{ background: "#fff", color: BLUE, border: `1px solid ${BLUE}`, borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-            Log out
-          </button>
-        )}
-      </div>
+      )}
 
       {showCreate && (
         <CreateNetworkModal onClose={() => setShowCreate(false)} onCreated={fetchNetworks} />
@@ -627,6 +631,56 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
           </div>
         </>
       )}
+    </>
+  );
+
+  if (!isStandalone) {
+    return (
+      <div style={{ fontFamily: "Arial, sans-serif", background: "#f4f6fb", minHeight: "100vh", padding: "24px 28px" }}>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f4f6fb", fontFamily: "Arial, sans-serif" }}>
+      <aside style={{ width: 232, flexShrink: 0, background: "#fff", borderRight: "1px solid #e6e9f0", display: "flex", flexDirection: "column", padding: "20px 14px", position: "sticky", top: 0, height: "100vh" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 8px 18px" }}>
+          <div style={{ width: 38, height: 38, borderRadius: 10, background: BLUE, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 18 }}>E</div>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: BLUE, lineHeight: 1.1 }}>ElimuAI</div>
+            <div style={{ fontSize: 11, color: "#99a" }}>Insurance Network</div>
+          </div>
+        </div>
+        <nav style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, background: "#eef3fb", color: BLUE, fontWeight: 700, fontSize: 13 }}>
+            {role === "manager" ? "My Team" : "My Dashboard"}
+          </div>
+        </nav>
+        <div style={{ marginTop: "auto" }}>
+          <div style={{ padding: "12px 12px 10px", borderTop: "1px solid #eef0f5" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agentDetail?.agent_name || (role === "manager" ? "Manager" : "Agent")}</div>
+            <div style={{ fontSize: 11, color: "#99a" }}>{role === "manager" ? "Network Manager" : "Network Agent"}</div>
+          </div>
+          {onLogout && (
+            <button onClick={onLogout} style={{ width: "100%", background: "#fff", color: "#c00", border: "1px solid #f0c9c9", borderRadius: 8, padding: "9px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              Log out
+            </button>
+          )}
+        </div>
+      </aside>
+
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <header style={{ background: "#fff", borderBottom: "1px solid #e6e9f0", padding: "14px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: "#1b2330" }}>{headerTitle}</div>
+          <button onClick={refresh} style={{ background: "#fff", color: BLUE, border: `1px solid ${BLUE}`, borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+            Refresh
+          </button>
+        </header>
+        <main style={{ flex: 1, padding: "24px 28px" }}>
+          {body}
+        </main>
+      </div>
     </div>
   );
 }
