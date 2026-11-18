@@ -576,6 +576,31 @@ async def get_agent_detail(
     }
 
 
+@router.get("/api/ch6/partners/me")
+async def my_partner_profile(
+    sess: AsyncSession = Depends(get_session),
+    principal=Depends(get_principal),
+):
+    """Return the CH6 partner record linked to the current login, so the
+    frontend can route insurance managers/agents to their own dashboard."""
+    row = (await sess.execute(text(
+        """
+        SELECT id, full_name, channel_type, parent_partner_id, network_id, status
+        FROM partners WHERE user_id = :u LIMIT 1
+        """
+    ), {"u": principal.user_id})).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="No partner profile for this account")
+    return {
+        "partner_id": str(row["id"]),
+        "full_name": row["full_name"],
+        "channel_type": row["channel_type"],
+        "parent_partner_id": str(row["parent_partner_id"]) if row["parent_partner_id"] else None,
+        "network_id": str(row["network_id"]) if row["network_id"] else None,
+        "status": row["status"],
+    }
+
+
 # ─── Admin: add a single manager (network admin) to a network ──────────────
 @router.post("/api/admin/ch6/networks/{network_id}/managers", dependencies=[AdminOnly])
 async def add_manager(

@@ -120,7 +120,8 @@ async def subscription_status(
 
     # Staff roles (admins + agents) never lose access; billing enforcement
     # doesn't apply to them.
-    if row["role"] in ("admin", "super_admin", "marketing_agent", "sales_agent"):
+    if row["role"] in ("admin", "super_admin", "marketing_agent", "sales_agent",
+                        "insurance_manager", "insurance_agent"):
         source = "exempt"
         ai_enabled = True
         expires_at = None

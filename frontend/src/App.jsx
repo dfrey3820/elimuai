@@ -22,6 +22,7 @@ import BillingScreen from "@/screens/BillingScreen";
 import SchoolAdmin from "@/screens/SchoolAdmin";
 import AgentDashboard from "@/screens/AgentDashboard";
 import SalesAgentDashboard from "@/screens/SalesAgentDashboard";
+import InsuranceDashboardLogin from "@/screens/InsuranceDashboardLogin";
 import ForcePasswordReset from "@/screens/ForcePasswordReset";
 
 const SettingsIcon = Settings;
@@ -124,7 +125,7 @@ export default function ElimuAI() {
   const isTrialExpired = user && user.trial_expires && new Date(user.trial_expires) < new Date();
   const hasPaidPlan = user && user.plan && user.plan !== "free" && user.plan_expires && new Date(user.plan_expires) > new Date();
   const isSchoolStudent = role === "student" && !!user?.school_id;
-  const isExempt = role === "admin" || role === "super_admin" || role === "teacher" || role === "marketing_agent" || role === "sales_agent" || isSchoolStudent;
+  const isExempt = role === "admin" || role === "super_admin" || role === "teacher" || role === "marketing_agent" || role === "sales_agent" || role === "insurance_manager" || role === "insurance_agent" || isSchoolStudent;
   const localMustPay = billingEnabled && user && isTrialExpired && !hasPaidPlan && !isExempt;
   const serverMustPay = subStatus && subStatus.billingEnabled && !subStatus.aiEnabled && subStatus.source === "expired";
   const mustPay = serverMustPay || (subStatus == null && localMustPay);
@@ -143,6 +144,8 @@ export default function ElimuAI() {
   if (role === "marketing_agent") return <AgentDashboard user={user} onLogout={handleLogout} />;
 
   if (role === "sales_agent") return <SalesAgentDashboard user={user} onLogout={handleLogout} />;
+
+  if (role === "insurance_manager" || role === "insurance_agent") return <InsuranceDashboardLogin user={user} onLogout={handleLogout} />;
 
   if (mustPay) return <BillingScreen user={user} lang={lang} onPaid={handlePaymentDone} />;
 
