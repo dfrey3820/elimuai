@@ -118,8 +118,9 @@ async def subscription_status(
     )
     trial_active = trial_expires is not None and trial_expires > now
 
-    # Admins/super_admins never lose access; billing enforcement doesn't apply.
-    if row["role"] in ("admin", "super_admin"):
+    # Staff roles (admins + agents) never lose access; billing enforcement
+    # doesn't apply to them.
+    if row["role"] in ("admin", "super_admin", "marketing_agent", "sales_agent"):
         source = "exempt"
         ai_enabled = True
         expires_at = None
