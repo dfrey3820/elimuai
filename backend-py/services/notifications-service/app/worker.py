@@ -55,6 +55,9 @@ class Settings(BaseServiceSettings):
     smtp_from_name: str = "ElimuAI"
     smtp_from_email: str = "noreply@elimuai.africa"
 
+    # Public web app URL used to build login links in emails.
+    app_url: str = "https://elimuai.africa"
+
     # ─── SMS — Africa's Talking ───────────────────────────────────────────
     at_api_key: str = ""
     at_username: str = "sandbox"
@@ -215,26 +218,40 @@ def _otp_html(code: str, purpose: str) -> str:
     """
 
 
-def _welcome_html(name: str) -> str:
+def _welcome_html(name: str, *, login_url: str, role: str | None = None, school_name: str | None = None) -> str:
+    if role and school_name and school_name != "ElimuAI":
+        added = f"<p>You've been added as a <strong>{role.title()}</strong> at <strong>{school_name}</strong>.</p>"
+    elif role:
+        added = f"<p>You've been added as a <strong>{role.title()}</strong>.</p>"
+    else:
+        added = ""
     return f"""
     <div style="font-family:'Segoe UI',sans-serif;max-width:520px;margin:0 auto;padding:24px">
       <h1 style="color:#10B981">Welcome to ElimuAI, {name}!</h1>
       <p>Your account is ready. Start learning with AI-powered tutors, past papers, and progress tracking.</p>
+      {added}
+      <p style="margin:24px 0">
+        <a href="{login_url}" style="background:#10B981;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">Log in to ElimuAI</a>
+      </p>
+      <p style="color:#64748b;font-size:12px">Or open <a href="{login_url}">{login_url}</a> in your browser.</p>
     </div>
     """
 
 
-def _invite_html(*, name: str, role: str, email: str, temp_password: str, school_name: str) -> str:
+def _credentials_html(*, name: str, role: str, email: str, temp_password: str, login_url: str) -> str:
     color = "#2563EB" if role == "teacher" else "#10B981"
     return f"""
     <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:24px">
-      <h1 style="color:{color}">Welcome to ElimuAI, {name}!</h1>
-      <p>You've been added as a <strong>{role.title()}</strong> at <strong>{school_name}</strong>.</p>
+      <h1 style="color:{color}">Your ElimuAI login details</h1>
+      <p>Hi {name}, here are your temporary login credentials.</p>
       <div style="background:#f8fafc;padding:16px;border-radius:8px;margin:16px 0">
         <p><strong>Email:</strong> {email}</p>
-        <p><strong>Password:</strong> <code style="color:{color}">{temp_password}</code></p>
+        <p><strong>Temporary password:</strong> <code style="color:{color}">{temp_password}</code></p>
       </div>
-      <p style="color:#64748b;font-size:12px">Please change your password after your first login.</p>
+      <p style="margin:24px 0">
+        <a href="{login_url}" style="background:{color};color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:700">Log in</a>
+      </p>
+      <p style="color:#64748b;font-size:12px">For your security, please change your password right after your first login.</p>
     </div>
     """
 
@@ -389,22 +406,35 @@ async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> Non
         email = payload.get("email")
         name = payload.get("name") or "friend"
         if email:
-            await send_email(settings, email, "Welcome to ElimuAI", _welcome_html(name))
+            await send_email(
+                settings, email, "Welcome to ElimuAI",
+                _welcome_html(name, login_url=f"{settings.app_url}/login"),
+            )
 
     elif topic == "user.onboarded":
         email = payload.get("email")
         if email:
+            name = payload.get("name") or "friend"
+            role = payload.get("role", "student")
+            school_name = payload.get("school_name", "ElimuAI")
+            temp_password = payload.get("temp_password", "")
+            login_url = f"{settings.app_url}/login"
+            # 1) Welcome email (with login link)
             await send_email(
                 settings, email,
-                f"You've been added to {payload.get('school_name', 'ElimuAI')}",
-                _invite_html(
-                    name=payload.get("name") or "friend",
-                    role=payload.get("role", "student"),
-                    email=email,
-                    temp_password=payload.get("temp_password", ""),
-                    school_name=payload.get("school_name", "ElimuAI"),
-                ),
+                f"Welcome to {school_name}",
+                _welcome_html(name, login_url=login_url, role=role, school_name=school_name),
             )
+            # 2) Separate credentials email (temp password + login link)
+            if temp_password:
+                await send_email(
+                    settings, email,
+                    "Your ElimuAI login details",
+                    _credentials_html(
+                        name=name, role=role, email=email,
+                        temp_password=temp_password, login_url=login_url,
+                    ),
+                )
 
     elif topic == "payment.completed":
         email = payload.get("email")
