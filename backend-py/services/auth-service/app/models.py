@@ -29,6 +29,7 @@ class Base(DeclarativeBase):
 # Reuse the enums created by schema.sql — do not recreate them.
 UserRole = PgEnum(
     "student", "teacher", "parent", "admin", "super_admin",
+    "marketing_agent", "insurance_manager", "insurance_agent",
     name="user_role",
 )
 PlanType = PgEnum(
