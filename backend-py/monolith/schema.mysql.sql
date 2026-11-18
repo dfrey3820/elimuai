@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone           VARCHAR(20),
   password_hash   VARCHAR(255),
   must_reset_password BOOLEAN NOT NULL DEFAULT FALSE,
-  role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent') NOT NULL DEFAULT 'student',
+  role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent','insurance_manager','insurance_agent','sales_agent') NOT NULL DEFAULT 'student',
   plan            ENUM('free','student','teacher','parent','family','school','enterprise') NOT NULL DEFAULT 'free',
   plan_expires    DATETIME,
   country         ENUM('KE','TZ','UG') NOT NULL DEFAULT 'KE',

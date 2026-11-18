@@ -16,7 +16,7 @@ class Base(DeclarativeBase):
 
 UserRole = PgEnum(
     "student", "teacher", "parent", "admin", "super_admin",
-    "marketing_agent", "insurance_manager", "insurance_agent",
+    "marketing_agent", "insurance_manager", "insurance_agent", "sales_agent",
     name="user_role",
 )
 PlanType = PgEnum(
