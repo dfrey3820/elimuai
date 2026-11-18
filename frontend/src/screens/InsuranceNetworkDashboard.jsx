@@ -354,7 +354,7 @@ function AddPartnerModal({ kind, endpoint, onClose, onCreated }) {
   );
 }
 
-export default function InsuranceNetworkDashboard({ role = "network_head", partnerId, networkId, onLogout }) {
+export default function InsuranceNetworkDashboard({ role = "network_head", partnerId, networkId, me, onLogout }) {
   const [view, setView] = useState("network");
   const [networks, setNetworks] = useState([]);
   const [selectedNetwork, setSelectedNetwork] = useState(networkId || null);
@@ -519,6 +519,20 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
 
       {role === "manager" && view === "manager" && (
         <>
+          {me?.referral_code && (
+            <>
+              <ReferralBox code={me.referral_code} link={me.referral_link} />
+              <div style={{ fontSize: 13, color: "#555", margin: "-6px 0 16px" }}>
+                Share your link to sell directly — any family that subscribes through it is credited to you, on top of your team overrides.
+              </div>
+              <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
+                <StatCard label="Families You Enrolled" value={me.families_enrolled || 0} color={GREEN} />
+                <StatCard label="Your Pending Commission" value={fmt(me.pending_kes)} sub="paid end of month" color={GOLD} />
+                <StatCard label="You Paid (All Time)" value={fmt(me.paid_kes)} color={BLUE} />
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#333", margin: "4px 0 10px" }}>Your Team</div>
+            </>
+          )}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
             <StatCard label="Your Team Size" value={agents.length} color={PURPLE} />
             <StatCard label="Total Families (Team)" value={agents.reduce((s, a) => s + a.total_families_enrolled, 0)} color={GREEN} />

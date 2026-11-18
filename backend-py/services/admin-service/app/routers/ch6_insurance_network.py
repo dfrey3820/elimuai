@@ -582,7 +582,9 @@ async def my_partner_profile(
     principal=Depends(get_principal),
 ):
     """Return the CH6 partner record linked to the current login, so the
-    frontend can route insurance managers/agents to their own dashboard."""
+    frontend can route insurance managers/agents to their own dashboard.
+    Includes the partner's own referral code + personal enrolment stats so
+    managers can also sell/onboard directly (not just oversee their team)."""
     row = (await sess.execute(text(
         """
         SELECT id, full_name, channel_type, parent_partner_id, network_id, status
@@ -591,13 +593,36 @@ async def my_partner_profile(
     ), {"u": principal.user_id})).mappings().first()
     if not row:
         raise HTTPException(status_code=404, detail="No partner profile for this account")
+
+    partner_id = str(row["id"])
+    code = (await sess.execute(
+        text("SELECT code FROM referral_codes WHERE partner_id = :p LIMIT 1"),
+        {"p": partner_id},
+    )).scalar_one_or_none()
+    stats = (await sess.execute(text(
+        """
+        SELECT
+          (SELECT COUNT(DISTINCT subscriber_id) FROM conversions
+             WHERE partner_id = :p AND status = 'confirmed') AS families_enrolled,
+          (SELECT COALESCE(SUM(commission_kes), 0) FROM commissions
+             WHERE partner_id = :p AND status = 'pending') AS pending_kes,
+          (SELECT COALESCE(SUM(commission_kes), 0) FROM commissions
+             WHERE partner_id = :p AND status = 'paid') AS paid_kes
+        """
+    ), {"p": partner_id})).mappings().first()
+
     return {
-        "partner_id": str(row["id"]),
+        "partner_id": partner_id,
         "full_name": row["full_name"],
         "channel_type": row["channel_type"],
         "parent_partner_id": str(row["parent_partner_id"]) if row["parent_partner_id"] else None,
         "network_id": str(row["network_id"]) if row["network_id"] else None,
         "status": row["status"],
+        "referral_code": code,
+        "referral_link": f"{BASE_URL}/?ref={code}" if code else None,
+        "families_enrolled": int(stats["families_enrolled"] or 0),
+        "pending_kes": float(stats["pending_kes"] or 0),
+        "paid_kes": float(stats["paid_kes"] or 0),
     }
 
 

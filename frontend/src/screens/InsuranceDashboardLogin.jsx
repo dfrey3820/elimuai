@@ -42,6 +42,7 @@ export default function InsuranceDashboardLogin({ user, onLogout }) {
       role={dashRole}
       partnerId={partner?.partner_id}
       networkId={partner?.network_id}
+      me={partner}
       onLogout={onLogout}
     />
   );
