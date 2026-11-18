@@ -100,6 +100,33 @@ _AGENT_EXPIRING_SQL = text(
     """
 )
 
+# Direct sales agent CC: notify the sales agent of their own customer's
+# expiring plan so they can follow up and help them renew. Idempotent per
+# (user, expiry date).
+_SALES_AGENT_EXPIRING_SQL = text(
+    """
+    SELECT u.id AS customer_id, u.name AS customer_name, u.email AS customer_email,
+           u.plan, u.plan_expires,
+           au.name AS agent_name, au.email AS agent_email
+    FROM users u
+    JOIN sales_agent_referrals sr ON sr.user_id = u.id
+    JOIN sales_agents sa          ON sa.id = sr.agent_id AND sa.is_active = true
+    JOIN users au                 ON au.id = sa.user_id
+    WHERE u.plan <> 'free'
+      AND u.is_active = true
+      AND u.plan_expires IS NOT NULL
+      AND u.plan_expires >= NOW()
+      AND u.plan_expires <= NOW() + INTERVAL :days DAY
+      AND au.email IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM subscription_reminders r
+        WHERE r.user_id = u.id
+          AND r.kind = 'sales_agent_expiring'
+          AND r.reference = DATE(u.plan_expires)
+      )
+    """
+)
+
 # Lapsed: paid plan already expired and not renewed (a renewal moves
 # plan_expires into the future, disqualifying the row). Any role — personal
 # subscriptions belong to students/parents/teachers too. Capped at
@@ -226,7 +253,7 @@ async def run_once(app) -> dict[str, int]:
     """
     settings: Settings = app.state.settings
     bus: EventBus = app.state.event_bus
-    counts = {"free_upgrade": 0, "expiring_soon": 0, "agent_expiring": 0, "renewal_invoice": 0, "trial_invoice": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "agent_expiring": 0, "sales_agent_expiring": 0, "renewal_invoice": 0, "trial_invoice": 0}
 
     async for sess in app.state.db.session():
         got_lock = (await sess.execute(
@@ -246,7 +273,7 @@ async def run_once(app) -> dict[str, int]:
 
 
 async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
-    counts = {"free_upgrade": 0, "expiring_soon": 0, "agent_expiring": 0, "renewal_invoice": 0, "trial_invoice": 0}
+    counts = {"free_upgrade": 0, "expiring_soon": 0, "agent_expiring": 0, "sales_agent_expiring": 0, "renewal_invoice": 0, "trial_invoice": 0}
     if True:  # keep original body indentation
         # ── Free-plan admins ─────────────────────────────────────────────
         rows = (await sess.execute(
@@ -323,6 +350,34 @@ async def _sweep(sess, settings: Settings, bus: EventBus) -> dict[str, int]:
                 sess, r["customer_id"], "agent_expiring", reference=expires_at.date(),
             )
             counts["agent_expiring"] += 1
+
+        # ── Direct sales agent CC: notify the sales agent of expiring customers ─
+        rows = (await sess.execute(
+            _SALES_AGENT_EXPIRING_SQL, {"days": settings.reminders_expiring_days},
+        )).mappings().all()
+        for r in rows:
+            expires_at = r["plan_expires"]
+            days_left = None
+            try:
+                from datetime import datetime, timezone
+                now = datetime.now(timezone.utc) if expires_at.tzinfo else datetime.utcnow()
+                days_left = max(0, (expires_at - now).days)
+            except Exception:  # noqa: BLE001
+                pass
+            if r["agent_email"]:
+                await bus.publish("billing.sales_agent_customer_expiring", {
+                    "email": r["agent_email"],
+                    "recipient_name": r["agent_name"],
+                    "customer_name": r["customer_name"],
+                    "customer_email": r["customer_email"],
+                    "plan": r["plan"],
+                    "plan_expires": expires_at.isoformat() if expires_at else None,
+                    "days_left": days_left,
+                })
+            await _record_sent(
+                sess, r["customer_id"], "sales_agent_expiring", reference=expires_at.date(),
+            )
+            counts["sales_agent_expiring"] += 1
 
         # ── Lapsed subscribers: renewal invoice, 3 sends over a week ─────
         rows = (await sess.execute(

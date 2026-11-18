@@ -18,6 +18,7 @@ import PlansScreen from "@/screens/PlansScreen";
 import LessonsManager from "@/screens/LessonsManager";
 import InsuranceNetworkDashboard from "@/screens/InsuranceNetworkDashboard";
 import NetworkAgentsAdmin from "@/screens/NetworkAgentsAdmin";
+import SalesAgentsAdmin from "@/screens/SalesAgentsAdmin";
 import {
   Home, Bot, FileText, BookOpen, BarChart3, Trophy, CreditCard,
   GraduationCap, Users, User, Heart, Settings, MessageSquare,
@@ -559,7 +560,7 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
     ? [{ l: "Overview", icon: BarChart3 }, { l: "Transactions", icon: CreditCard }, { l: "Subscriptions", icon: Receipt }, { l: "SMS Logs", icon: Smartphone },
        { l: "Users", icon: Users }, { l: "Students", icon: GraduationCap }, { l: "Teachers", icon: BookOpen },
        { l: "Exams", icon: FileText }, { l: "Lessons", icon: Download },
-       { l: "Coupons", icon: Tag }, { l: "Insurance Network", icon: Briefcase }, { l: "Network Agents", icon: UserPlus }, { l: "Settings", icon: SettingsIcon }, { l: "Reports", icon: TrendingUp }]
+       { l: "Coupons", icon: Tag }, { l: "Insurance Network", icon: Briefcase }, { l: "Network Agents", icon: UserPlus }, { l: "Sales Agents", icon: UserPlus }, { l: "Settings", icon: SettingsIcon }, { l: "Reports", icon: TrendingUp }]
     : isTeacher
     ? [
         { l: "Overview", icon: BarChart3 },
@@ -2455,6 +2456,10 @@ function SchoolAdmin({ lang, user, setUser, onLogout, country, setCountry, level
 
         {tab === "Network Agents" && isSuperAdmin && (
           <NetworkAgentsAdmin />
+        )}
+
+        {tab === "Sales Agents" && isSuperAdmin && (
+          <SalesAgentsAdmin />
         )}
       </div>
 

@@ -250,6 +250,22 @@ async def register(
             )
             await session.commit()
             log.info("agent.referral.linked", user_id=str(user.id), agent_code=code)
+        else:
+            # Not a marketing code — try the direct sales channel (separate table).
+            sales_agent_id = (await session.execute(
+                text("SELECT id FROM sales_agents WHERE agent_code = :c AND is_active = 1 LIMIT 1"),
+                {"c": code},
+            )).scalar_one_or_none()
+            if sales_agent_id:
+                await session.execute(
+                    text(
+                        "INSERT IGNORE INTO sales_agent_referrals (id, agent_id, user_id, source) "
+                        "VALUES (:id, :a, :u, 'link')"
+                    ),
+                    {"id": str(uuid_mod.uuid4()), "a": sales_agent_id, "u": str(user.id)},
+                )
+                await session.commit()
+                log.info("sales_agent.referral.linked", user_id=str(user.id), agent_code=code)
 
     # ─── Send OTP ───────────────────────────────────────────────────────────
     async def _dispatcher(email: str, code: str, purpose: str) -> bool:

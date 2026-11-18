@@ -74,6 +74,8 @@ TOPICS = (
     "billing.reminder_expiring",
     "billing.reminder_renewal",
     "billing.agent_customer_expiring",
+    "billing.sales_agent_customer_expiring",
+    "billing.sales_agent_manual_reminder",
 )
 
 
@@ -350,6 +352,27 @@ def _agent_customer_expiring_html(*, recipient_name: str, customer_name: str, cu
     """
 
 
+def _sales_agent_manual_reminder_html(*, name: str, plan: str, days_left: int | None, agent_name: str) -> str:
+    when = (
+        f"in {days_left} day{'s' if (days_left or 0) != 1 else ''}"
+        if isinstance(days_left, int) and days_left >= 0 else "soon"
+    )
+    return f"""
+    <div style="font-family:'Segoe UI',sans-serif;max-width:560px;margin:0 auto;padding:24px">
+      <h1 style="color:#00A86B">Time to renew your ElimuAI plan</h1>
+      <p>Hi {name},</p>
+      <p>{agent_name} wanted to remind you that your <strong>{plan}</strong> plan expires {when}.
+         Renew now to keep unlimited AI tutoring, past papers and progress analytics without interruption.</p>
+      <p style="margin:24px 0">
+        <a href="https://elimuai.africa/dashboard?tab=Billing"
+           style="background:#00A86B;color:#fff;padding:12px 20px;border-radius:10px;
+                  text-decoration:none;font-weight:700">Renew now</a>
+      </p>
+      <p style="color:#64748b;font-size:12px">If you've already renewed, you can ignore this email.</p>
+    </div>
+    """
+
+
 async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> None:
     if not payload:
         log.warning("empty_payload", topic=topic)
@@ -478,6 +501,47 @@ async def handle(settings: Settings, topic: str, payload: dict[str, Any]) -> Non
                     customer_email=payload.get("customer_email") or "",
                     plan=payload.get("plan") or "plan",
                     days_left=days_left if isinstance(days_left, int) else None,
+                ),
+            )
+
+    elif topic == "billing.sales_agent_customer_expiring":
+        email = payload.get("email")
+        if email:
+            days_left = payload.get("days_left")
+            subject = (
+                f"Your customer's ElimuAI plan expires in {days_left} day"
+                f"{'s' if (days_left or 0) != 1 else ''}"
+                if isinstance(days_left, int)
+                else "Your customer's ElimuAI plan is expiring soon"
+            )
+            await send_email(
+                settings, email, subject,
+                _agent_customer_expiring_html(
+                    recipient_name=payload.get("recipient_name") or "there",
+                    customer_name=payload.get("customer_name") or "your customer",
+                    customer_email=payload.get("customer_email") or "",
+                    plan=payload.get("plan") or "plan",
+                    days_left=days_left if isinstance(days_left, int) else None,
+                ),
+            )
+
+    elif topic == "billing.sales_agent_manual_reminder":
+        email = payload.get("email")
+        if email:
+            days_left = payload.get("days_left")
+            subject = (
+                f"Renew your ElimuAI plan — expires in {days_left} day"
+                f"{'s' if (days_left or 0) != 1 else ''}"
+                if isinstance(days_left, int) and days_left >= 0
+                else "Time to renew your ElimuAI plan"
+            )
+            await send_email(
+                settings, email, subject,
+                _sales_agent_manual_reminder_html(
+                    name=payload.get("name") or "there",
+                    plan=payload.get("plan") or "your plan",
+                    days_left=days_left if isinstance(days_left, int) else None,
+                    agent_name=payload.get("agent_name") or "Your ElimuAI agent",
                 ),
             )
 

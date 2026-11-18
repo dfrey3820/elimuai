@@ -245,7 +245,6 @@ export default function SalesAgentDashboard({ user, onLogout }) {
   useEffect(() => { load(); }, [load]);
 
   const tabs = ["Overview", "Earnings", "Onboard"];
-  const rate = agent?.effective_rate ?? agent?.commission_rate ?? 0;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -280,7 +279,6 @@ export default function SalesAgentDashboard({ user, onLogout }) {
               <StatCard icon={Users} label="Customers" value={stats?.referrals ?? 0} color="#00A86B" />
               <StatCard icon={Wallet} label="Paid out" value={fmtMoney(stats?.paid_amount)} color="#0056A2" />
               <StatCard icon={Clock} label="Pending" value={fmtMoney(stats?.pending_amount)} color="#D97706" />
-              <StatCard icon={CheckCircle} label="Commission rate" value={`${Math.round((rate || 0) * 100)}%`} color="#6B3FA0" />
             </div>
 
             <div className="flex gap-2 mb-5 flex-wrap">
@@ -323,15 +321,14 @@ export default function SalesAgentDashboard({ user, onLogout }) {
                 <div className="px-5 py-3.5 border-b border-slate-100 text-slate-900 text-[14px] font-heading font-black">Commissions</div>
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse">
-                    <thead><tr><th className={thCls}>Customer</th><th className={thCls}>Base</th><th className={thCls}>Rate</th><th className={thCls}>Commission</th><th className={thCls}>Status</th><th className={thCls}>Date</th></tr></thead>
+                    <thead><tr><th className={thCls}>Customer</th><th className={thCls}>Base</th><th className={thCls}>Commission</th><th className={thCls}>Status</th><th className={thCls}>Date</th></tr></thead>
                     <tbody>
                       {commissions.length === 0 ? (
-                        <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-[13px] font-body">No commissions yet. You earn when a customer makes their first payment.</td></tr>
+                        <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-[13px] font-body">No commissions yet. You earn when a customer makes their first payment.</td></tr>
                       ) : commissions.map((c) => (
                         <tr key={c.id}>
                           <td className={tdCls}>{c.user_name || c.user_email}</td>
                           <td className={tdCls}>{fmtMoney(c.base_amount, c.currency)}</td>
-                          <td className={tdCls}>{Math.round((c.commission_rate || 0) * 100)}%</td>
                           <td className={tdCls}>{fmtMoney(c.commission_amount, c.currency)}</td>
                           <td className={tdCls}>{statusBadge(c.status)}</td>
                           <td className={tdCls}>{fmtDate(c.created_at)}</td>

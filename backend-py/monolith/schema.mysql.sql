@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone           VARCHAR(20),
   password_hash   VARCHAR(255),
   must_reset_password BOOLEAN NOT NULL DEFAULT FALSE,
-  role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent','insurance_manager','insurance_agent') NOT NULL DEFAULT 'student',
+  role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent') NOT NULL DEFAULT 'student',
   plan            ENUM('free','student','teacher','parent','family','school','enterprise') NOT NULL DEFAULT 'free',
   plan_expires    DATETIME,
   country         ENUM('KE','TZ','UG') NOT NULL DEFAULT 'KE',
@@ -537,14 +537,12 @@ CREATE TABLE IF NOT EXISTS partners (
   team_code         VARCHAR(50),
   employee_number   VARCHAR(50),
   insurance_company VARCHAR(255),
-  user_id           CHAR(36),
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_partners_channel (channel_type),
   KEY idx_partners_status  (status),
   KEY idx_partners_parent  (parent_partner_id),
   KEY idx_partners_network (network_id),
   KEY idx_partners_team    (team_code),
-  KEY idx_partners_user    (user_id),
   CONSTRAINT fk_partners_parent FOREIGN KEY (parent_partner_id) REFERENCES partners(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -714,6 +712,64 @@ CREATE TABLE IF NOT EXISTS agent_commissions (
   CONSTRAINT fk_agent_commissions_paid_by  FOREIGN KEY (paid_by)     REFERENCES users(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- ─── DIRECT SALES AGENTS (014) ───────────────────────────────────────────────
+-- Standalone sales channel, separate from marketing/network agents above.
+-- Commission is first-payment-only; triggers live in scripts/014_direct_sales_agents.mysql.sql.
+CREATE TABLE IF NOT EXISTS sales_agents (
+  id                 CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  user_id            CHAR(36) NOT NULL,
+  agent_code         VARCHAR(32) NOT NULL,
+  commission_rate    DECIMAL(5,4) NULL CHECK (commission_rate IS NULL OR (commission_rate >= 0 AND commission_rate <= 1)),
+  is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+  payout_method      VARCHAR(32),
+  payout_details     JSON NOT NULL DEFAULT (JSON_OBJECT()),
+  notes              TEXT,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_sales_agents_user (user_id),
+  UNIQUE KEY uq_sales_agents_code (agent_code),
+  KEY idx_sales_agents_active (is_active),
+  CONSTRAINT fk_sales_agents_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sales_agent_referrals (
+  id           CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  agent_id     CHAR(36) NOT NULL,
+  user_id      CHAR(36) NOT NULL,
+  source       VARCHAR(32) NOT NULL DEFAULT 'link',
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_sales_agent_referrals_user (user_id),
+  KEY idx_sales_agent_referrals_agent (agent_id),
+  CONSTRAINT fk_sales_agent_referrals_agent FOREIGN KEY (agent_id) REFERENCES sales_agents(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sales_agent_referrals_user  FOREIGN KEY (user_id)  REFERENCES users(id)        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sales_agent_commissions (
+  id                 CHAR(36) NOT NULL DEFAULT (UUID()) PRIMARY KEY,
+  agent_id           CHAR(36) NOT NULL,
+  referral_id        CHAR(36) NOT NULL,
+  user_id            CHAR(36) NOT NULL,
+  payment_id         CHAR(36),
+  base_amount        DECIMAL(12,2) NOT NULL,
+  commission_rate    DECIMAL(5,4) NOT NULL,
+  commission_amount  DECIMAL(12,2) NOT NULL,
+  currency           VARCHAR(5) NOT NULL DEFAULT 'KES',
+  status             VARCHAR(24) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','void')),
+  paid_at            DATETIME,
+  paid_by            CHAR(36),
+  payout_reference   VARCHAR(120),
+  notes              TEXT,
+  created_at         DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_sales_agent_commissions_referral_agent (referral_id, agent_id),
+  KEY idx_sales_agent_commissions_agent_status (agent_id, status),
+  KEY idx_sales_agent_commissions_user (user_id),
+  CONSTRAINT fk_sales_agent_commissions_agent    FOREIGN KEY (agent_id)    REFERENCES sales_agents(id)          ON DELETE CASCADE,
+  CONSTRAINT fk_sales_agent_commissions_referral FOREIGN KEY (referral_id) REFERENCES sales_agent_referrals(id) ON DELETE CASCADE,
+  CONSTRAINT fk_sales_agent_commissions_user     FOREIGN KEY (user_id)     REFERENCES users(id)                 ON DELETE CASCADE,
+  CONSTRAINT fk_sales_agent_commissions_payment  FOREIGN KEY (payment_id)  REFERENCES payments(id)              ON DELETE SET NULL,
+  CONSTRAINT fk_sales_agent_commissions_paid_by  FOREIGN KEY (paid_by)     REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ═══════════════════════════════════════════════════════════════════════════
@@ -748,8 +804,8 @@ INSERT IGNORE INTO admin_settings (`key`, value) VALUES
   ('smtp_from_email', ''),
   ('billing_quarterly_discount', '10'),
   ('billing_semi_annual_discount', '15'),
-  ('billing_annual_discount', '20');
-
+  ('billing_annual_discount', '20'),
+  ('sales_agent_commission_rate', '0.10');
 INSERT IGNORE INTO achievements (code, name, name_sw, description, desc_sw, icon, xp_reward, criteria) VALUES
 ('streak_3',     '3-Day Streak',     'Msururu wa Siku 3',   'Learn 3 days in a row',          'Jifunza siku 3 mfululizo',              '🔥', 30,  '{"streak_days": 3}'),
 ('streak_7',     '7-Day Streak',     'Msururu wa Wiki',     'Learn 7 days in a row',          'Jifunza siku 7 mfululizo',              '🔥', 75,  '{"streak_days": 7}'),
