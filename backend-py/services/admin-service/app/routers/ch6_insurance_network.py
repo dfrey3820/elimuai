@@ -6,22 +6,75 @@ from __future__ import annotations
 
 import csv
 import io
+import secrets
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
+import bcrypt
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..deps import AdminOnly, get_session
+from ..deps import AdminOnly, get_event_bus, get_principal, get_session
 from ..services.ch6_commission_engine import calculate_ch6_commission
 
 router = APIRouter(tags=["ch6-insurance-network"])
 BASE_URL = "https://elimuai.africa"
+
+
+def _gen_temp_password(n: int = 10) -> str:
+    """Temporary password with unambiguous characters."""
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(n))
+
+
+def _hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt(rounds=12)).decode()
+
+
+async def _provision_login(sess: AsyncSession, *, name: str, email: Optional[str], role: str):
+    """Create (or refresh) a login account for a CH6 partner so they can access
+    their own dashboard. Returns (user_id, temp_password). temp_password is None
+    when no credential email should be sent (no email, or an admin account)."""
+    if not email:
+        return None, None
+    email = email.strip().lower()
+    temp = _gen_temp_password()
+    existing = (await sess.execute(
+        text("SELECT id, role FROM users WHERE email = :e"), {"e": email}
+    )).mappings().first()
+    if existing:
+        if existing["role"] in ("admin", "super_admin"):
+            return str(existing["id"]), None
+        await sess.execute(
+            text("UPDATE users SET password_hash = :pw, must_reset_password = TRUE, role = :r WHERE id = :u"),
+            {"pw": _hash_password(temp), "r": role, "u": existing["id"]},
+        )
+        return str(existing["id"]), temp
+    uid = str(uuid.uuid4())
+    await sess.execute(text("""
+        INSERT INTO users (id, name, email, password_hash, must_reset_password,
+                           role, is_active, email_verified, onboarded)
+        VALUES (:id, :n, :e, :pw, TRUE, :r, TRUE, FALSE, FALSE)
+    """), {"id": uid, "n": name, "e": email, "pw": _hash_password(temp), "r": role})
+    return uid, temp
+
+
+async def _assert_admin_or_partner(sess: AsyncSession, principal, partner_id: str) -> None:
+    """Allow platform admins, or the partner who owns this record."""
+    if getattr(principal, "role", None) in ("admin", "super_admin"):
+        return
+    row = (await sess.execute(
+        text("SELECT id FROM partners WHERE id = :id AND user_id = :u"),
+        {"id": partner_id, "u": principal.user_id},
+    )).fetchone()
+    if not row:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
@@ -470,8 +523,13 @@ async def list_managers(network_id: str, sess: AsyncSession = Depends(get_sessio
     ]
 
 
-@router.get("/api/admin/ch6/managers/{manager_id}/agents", dependencies=[AdminOnly])
-async def list_agents_for_manager(manager_id: str, sess: AsyncSession = Depends(get_session)):
+@router.get("/api/admin/ch6/managers/{manager_id}/agents")
+async def list_agents_for_manager(
+    manager_id: str,
+    sess: AsyncSession = Depends(get_session),
+    principal=Depends(get_principal),
+):
+    await _assert_admin_or_partner(sess, principal, manager_id)
     result = await sess.execute(text("""
         SELECT * FROM v_ch6_agent_performance ap
         JOIN partners p ON p.id = ap.agent_id
@@ -493,8 +551,13 @@ async def list_agents_for_manager(manager_id: str, sess: AsyncSession = Depends(
     ]
 
 
-@router.get("/api/admin/ch6/agents/{agent_id}", dependencies=[AdminOnly])
-async def get_agent_detail(agent_id: str, sess: AsyncSession = Depends(get_session)):
+@router.get("/api/admin/ch6/agents/{agent_id}")
+async def get_agent_detail(
+    agent_id: str,
+    sess: AsyncSession = Depends(get_session),
+    principal=Depends(get_principal),
+):
+    await _assert_admin_or_partner(sess, principal, agent_id)
     result = await sess.execute(
         text("SELECT * FROM v_ch6_agent_performance WHERE agent_id = :id"),
         {"id": agent_id},
@@ -519,6 +582,7 @@ async def add_manager(
     network_id: str,
     payload: AddPartnerRequest,
     sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
 ):
     """Add one manager (a.k.a. the network admin) directly to a network,
     linking them under the network head. Mirrors bulk-import PASS 1."""
@@ -568,6 +632,15 @@ async def add_manager(
         VALUES (:id, :pid, :code, 'insurance_manager')
     """), {"id": str(uuid.uuid4()), "pid": partner_id, "code": code})
 
+    user_id, temp_password = await _provision_login(
+        sess, name=full_name, email=payload.email, role="insurance_manager"
+    )
+    if user_id:
+        await sess.execute(
+            text("UPDATE partners SET user_id = :u WHERE id = :pid"),
+            {"u": user_id, "pid": partner_id},
+        )
+
     await sess.execute(text("""
         UPDATE insurance_networks SET
           total_managers = (SELECT COUNT(*) FROM partners WHERE network_id = :nid AND channel_type = 'insurance_manager')
@@ -575,11 +648,22 @@ async def add_manager(
     """), {"nid": network_id})
     await sess.commit()
 
+    if user_id and temp_password:
+        await bus.publish("user.onboarded", {
+            "user_id": user_id,
+            "email": (payload.email or "").strip().lower(),
+            "name": full_name,
+            "role": "insurance_manager",
+            "school_name": "ElimuAI Insurance Network",
+            "temp_password": temp_password,
+        })
+
     return {
         "manager_id": partner_id,
         "team_code": f"TEAM-{employee_number}",
         "referral_code": code,
         "referral_link": f"{BASE_URL}/?ref={code}",
+        "login_created": bool(user_id),
         "message": "Manager added to network",
     }
 
@@ -590,6 +674,7 @@ async def add_agent(
     manager_id: str,
     payload: AddPartnerRequest,
     sess: AsyncSession = Depends(get_session),
+    bus=Depends(get_event_bus),
 ):
     """Add one agent directly under a manager. Mirrors bulk-import PASS 2."""
     mgr_result = await sess.execute(
@@ -637,6 +722,15 @@ async def add_agent(
         VALUES (:id, :pid, :code, 'insurance_agent')
     """), {"id": str(uuid.uuid4()), "pid": partner_id, "code": code})
 
+    user_id, temp_password = await _provision_login(
+        sess, name=full_name, email=payload.email, role="insurance_agent"
+    )
+    if user_id:
+        await sess.execute(
+            text("UPDATE partners SET user_id = :u WHERE id = :pid"),
+            {"u": user_id, "pid": partner_id},
+        )
+
     await sess.execute(text("""
         UPDATE insurance_networks SET
           total_agents = (SELECT COUNT(*) FROM partners WHERE network_id = :nid AND channel_type = 'insurance_agent')
@@ -644,9 +738,51 @@ async def add_agent(
     """), {"nid": network_id})
     await sess.commit()
 
+    if user_id and temp_password:
+        await bus.publish("user.onboarded", {
+            "user_id": user_id,
+            "email": (payload.email or "").strip().lower(),
+            "name": full_name,
+            "role": "insurance_agent",
+            "school_name": "ElimuAI Insurance Network",
+            "temp_password": temp_password,
+        })
+
     return {
         "agent_id": partner_id,
         "referral_code": code,
         "referral_link": f"{BASE_URL}/?ref={code}",
+        "login_created": bool(user_id),
         "message": "Agent added to team",
     }
+
+
+# ─── Admin: delete a network (and all its partners / referral data) ────────
+@router.delete("/api/admin/ch6/networks/{network_id}", dependencies=[AdminOnly])
+async def delete_network(network_id: str, sess: AsyncSession = Depends(get_session)):
+    """Permanently delete a network together with its head, managers, agents,
+    referral codes, conversions and commissions. Super-admin only."""
+    net = (await sess.execute(
+        text("SELECT id FROM insurance_networks WHERE id = :id"),
+        {"id": network_id},
+    )).fetchone()
+    if not net:
+        raise HTTPException(status_code=404, detail="Network not found")
+
+    partner_ids_subq = "(SELECT id FROM partners WHERE network_id = :nid)"
+
+    # Remove financial/referral records first (FKs have no cascade to partners).
+    await sess.execute(text(f"DELETE FROM commissions WHERE partner_id IN {partner_ids_subq}"), {"nid": network_id})
+    await sess.execute(text(f"DELETE FROM conversions WHERE partner_id IN {partner_ids_subq}"), {"nid": network_id})
+    await sess.execute(text(f"DELETE FROM referral_codes WHERE partner_id IN {partner_ids_subq}"), {"nid": network_id})
+
+    # Delete the network row before its head partner (FK: networks -> head partner).
+    await sess.execute(text("DELETE FROM insurance_networks WHERE id = :nid"), {"nid": network_id})
+
+    # Delete partners child-first to satisfy the self-referential parent FK.
+    await sess.execute(text("DELETE FROM partners WHERE network_id = :nid AND channel_type = 'insurance_agent'"), {"nid": network_id})
+    await sess.execute(text("DELETE FROM partners WHERE network_id = :nid AND channel_type = 'insurance_manager'"), {"nid": network_id})
+    await sess.execute(text("DELETE FROM partners WHERE network_id = :nid AND channel_type = 'insurance_network_head'"), {"nid": network_id})
+
+    await sess.commit()
+    return {"message": "Network deleted"}

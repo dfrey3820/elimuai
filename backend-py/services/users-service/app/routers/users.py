@@ -35,7 +35,14 @@ async def get_profile(
     user = (await sess.execute(select(User).where(User.id == uuid.UUID(principal.user_id)))).scalar_one_or_none()
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
-    return {"user": UserOut.model_validate(user).model_dump(mode="json")}
+    data = UserOut.model_validate(user).model_dump(mode="json")
+    if principal.role in ("insurance_manager", "insurance_agent"):
+        partner_id = (await sess.execute(
+            text("SELECT id FROM partners WHERE user_id = :u LIMIT 1"),
+            {"u": principal.user_id},
+        )).scalar_one_or_none()
+        data["partner_id"] = str(partner_id) if partner_id else None
+    return {"user": data}
 
 
 @router.patch("/profile", response_model=dict)

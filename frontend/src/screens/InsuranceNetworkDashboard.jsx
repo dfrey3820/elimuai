@@ -49,6 +49,16 @@ async function apiPost(path, body) {
   return r.json();
 }
 
+async function apiDelete(path) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: "DELETE",
+    headers: { ...getAuthHeader() },
+    credentials: "include",
+  });
+  if (!r.ok) throw await apiError(r);
+  return r.json();
+}
+
 async function apiUpload(path, file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -344,7 +354,7 @@ function AddPartnerModal({ kind, endpoint, onClose, onCreated }) {
   );
 }
 
-export default function InsuranceNetworkDashboard({ role = "network_head", partnerId, networkId }) {
+export default function InsuranceNetworkDashboard({ role = "network_head", partnerId, networkId, onLogout }) {
   const [view, setView] = useState("network");
   const [networks, setNetworks] = useState([]);
   const [selectedNetwork, setSelectedNetwork] = useState(networkId || null);
@@ -420,6 +430,22 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
     setLoading(false);
   };
 
+  const deleteNetwork = async (nid, name) => {
+    if (!window.confirm(`Delete network "${name}"? This permanently removes its head, managers, agents and all their referral/commission data. This cannot be undone.`)) return;
+    setLoading(true);
+    setErr(null);
+    try {
+      await apiDelete(`/api/admin/ch6/networks/${nid}`);
+      setSelectedNetwork(null);
+      setView("network");
+      await fetchNetworks();
+    } catch (e) {
+      setErr(e.message || "Failed to delete network");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "50vh", color: BLUE, fontSize: 15 }}>Loading...</div>
   );
@@ -441,6 +467,11 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
         {role === "network_head" && view === "network" && !selectedNetwork && (
           <button onClick={() => setShowCreate(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
             + New Network
+          </button>
+        )}
+        {onLogout && (
+          <button onClick={onLogout} style={{ background: "#fff", color: BLUE, border: `1px solid ${BLUE}`, borderRadius: 8, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            Log out
           </button>
         )}
       </div>
@@ -527,9 +558,12 @@ export default function InsuranceNetworkDashboard({ role = "network_head", partn
       {role === "network_head" && view === "network" && selectedNetwork && (
         <>
           <Breadcrumb items={["All Networks", (currentNetwork && currentNetwork.network_name) || "Network"]} onClick={() => setSelectedNetwork(null)} />
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 12 }}>
             <button onClick={() => setShowAddManager(true)} style={{ background: BLUE, color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
               + Add Network Admin
+            </button>
+            <button onClick={() => deleteNetwork(selectedNetwork, (currentNetwork && currentNetwork.network_name) || "")} style={{ background: "#fff", color: "#c00", border: "1px solid #c00", borderRadius: 8, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              Delete Network
             </button>
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>

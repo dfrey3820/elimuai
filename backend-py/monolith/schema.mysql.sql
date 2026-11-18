@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone           VARCHAR(20),
   password_hash   VARCHAR(255),
   must_reset_password BOOLEAN NOT NULL DEFAULT FALSE,
-  role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent') NOT NULL DEFAULT 'student',
+  role            ENUM('student','teacher','parent','admin','super_admin','marketing_agent','insurance_manager','insurance_agent') NOT NULL DEFAULT 'student',
   plan            ENUM('free','student','teacher','parent','family','school','enterprise') NOT NULL DEFAULT 'free',
   plan_expires    DATETIME,
   country         ENUM('KE','TZ','UG') NOT NULL DEFAULT 'KE',
@@ -537,12 +537,14 @@ CREATE TABLE IF NOT EXISTS partners (
   team_code         VARCHAR(50),
   employee_number   VARCHAR(50),
   insurance_company VARCHAR(255),
+  user_id           CHAR(36),
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_partners_channel (channel_type),
   KEY idx_partners_status  (status),
   KEY idx_partners_parent  (parent_partner_id),
   KEY idx_partners_network (network_id),
   KEY idx_partners_team    (team_code),
+  KEY idx_partners_user    (user_id),
   CONSTRAINT fk_partners_parent FOREIGN KEY (parent_partner_id) REFERENCES partners(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

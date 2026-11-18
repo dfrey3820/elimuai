@@ -15,6 +15,10 @@ get_principal = make_principal_dependency(settings.jwt_secret)
 AdminOnly = Depends(role_checker(get_principal, "admin", "super_admin"))
 
 
+def get_event_bus(request: Request):
+    return request.app.state.event_bus
+
+
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
     async for sess in request.app.state.db.session():
         yield sess

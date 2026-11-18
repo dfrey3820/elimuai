@@ -21,6 +21,7 @@ import PlansScreen from "@/screens/PlansScreen";
 import BillingScreen from "@/screens/BillingScreen";
 import SchoolAdmin from "@/screens/SchoolAdmin";
 import AgentDashboard from "@/screens/AgentDashboard";
+import InsuranceNetworkDashboard from "@/screens/InsuranceNetworkDashboard";
 import ForcePasswordReset from "@/screens/ForcePasswordReset";
 
 const SettingsIcon = Settings;
@@ -140,6 +141,9 @@ export default function ElimuAI() {
   if (user?.must_reset_password) return <ForcePasswordReset user={user} onDone={handleResetDone} onLogout={handleLogout} />;
 
   if (role === "marketing_agent") return <AgentDashboard user={user} onLogout={handleLogout} />;
+
+  if (role === "insurance_manager") return <InsuranceNetworkDashboard role="manager" partnerId={user?.partner_id} onLogout={handleLogout} />;
+  if (role === "insurance_agent") return <InsuranceNetworkDashboard role="agent" partnerId={user?.partner_id} onLogout={handleLogout} />;
 
   if (mustPay) return <BillingScreen user={user} lang={lang} onPaid={handlePaymentDone} />;
 
