@@ -186,7 +186,12 @@ async def register(
     if existing and existing.email_verified:
         raise HTTPException(409, "Email already registered")
     if existing and not existing.email_verified:
-        # Allow re-registration by deleting the unverified stub.
+        if existing.is_active:
+            raise HTTPException(
+                409,
+                "This account was already invited. Sign in with the emailed credentials (or reset password) instead of registering again.",
+            )
+        # Allow re-registration by deleting the inactive unverified stub.
         await session.execute(delete(User).where(User.id == existing.id))
         await session.commit()
 

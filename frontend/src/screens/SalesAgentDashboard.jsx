@@ -85,7 +85,8 @@ function OnboardForms({ onDone }) {
     if (!cust.name.trim() || !cust.email.trim()) { setError("Name and email are required."); return; }
     setBusy(true);
     try {
-      await apiPost("/api/sales-agents/me/customers", cust);
+      const payload = { ...cust, phone: cust.phone?.trim() || null };
+      await apiPost("/api/sales-agents/me/customers", payload);
       setSuccess(`${cust.name} onboarded. They were credited to you.`);
       setCust({ name: "", email: "", phone: "", role: "student", country: "KE" });
       onDone?.();
@@ -100,7 +101,8 @@ function OnboardForms({ onDone }) {
     }
     setBusy(true);
     try {
-      await apiPost("/api/sales-agents/me/schools", school);
+      const payload = { ...school, admin_phone: school.admin_phone?.trim() || null };
+      await apiPost("/api/sales-agents/me/schools", payload);
       setSuccess(`${school.school_name} onboarded. The admin was credited to you.`);
       setSchool({ school_name: "", admin_name: "", admin_email: "", admin_phone: "", county: "", country: "KE", curriculum: "CBC" });
       onDone?.();

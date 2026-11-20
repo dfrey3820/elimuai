@@ -31,6 +31,7 @@ import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..deps import AdminOnly, current_principal, get_event_bus, get_session
@@ -122,6 +123,13 @@ def _hash_password(pw: str) -> str:
 
 def _dumps(value: dict) -> str:
     return json.dumps(value or {})
+
+
+def _blank_to_none(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 async def _load_agent_by_user(sess: AsyncSession, user_id: uuid.UUID) -> dict | None:
@@ -266,22 +274,40 @@ async def agent_onboard_customer(
 
     temp_password = _gen_temp_password()
     new_user_id = str(uuid.uuid4())
-    await sess.execute(text(
-        """
-        INSERT INTO users (id, name, email, phone, password_hash, must_reset_password,
-                           role, country, is_active, email_verified, onboarded)
-        VALUES (:id, :n, :e, :p, :pw, true, :r, :c, true, false, false)
-        """
-    ), {"id": new_user_id, "n": body.name, "e": body.email, "p": body.phone,
-        "pw": _hash_password(temp_password), "r": body.role, "c": body.country})
+    try:
+        await sess.execute(text(
+            """
+            INSERT INTO users (id, name, email, phone, password_hash, must_reset_password,
+                               role, country, is_active, email_verified, onboarded)
+            VALUES (:id, :n, :e, :p, :pw, true, :r, :c, true, false, false)
+            """
+        ), {
+            "id": new_user_id,
+            "n": body.name,
+            "e": body.email,
+            "p": _blank_to_none(body.phone),
+            "pw": _hash_password(temp_password),
+            "r": body.role,
+            "c": body.country,
+        })
 
-    await sess.execute(text(
-        """
-        INSERT INTO sales_agent_referrals (id, agent_id, user_id, source)
-        VALUES (:rid, :a, :u, 'agent_added')
-        """
-    ), {"rid": str(uuid.uuid4()), "a": agent["id"], "u": new_user_id})
-    await sess.commit()
+        await sess.execute(text(
+            """
+            INSERT INTO sales_agent_referrals (id, agent_id, user_id, source)
+            VALUES (:rid, :a, :u, 'agent_added')
+            """
+        ), {"rid": str(uuid.uuid4()), "a": agent["id"], "u": new_user_id})
+        await sess.commit()
+    except IntegrityError as exc:
+        await sess.rollback()
+        err = str(getattr(exc, "orig", exc)).lower()
+        if "email" in err:
+            detail = "A user with that email already exists"
+        elif "phone" in err:
+            detail = "A user with that phone already exists"
+        else:
+            detail = "Email or phone already registered"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
 
     await bus.publish("user.onboarded", {
         "user_id": new_user_id,
@@ -314,36 +340,59 @@ async def agent_onboard_school(
         raise HTTPException(status.HTTP_409_CONFLICT, "A user with that admin email already exists")
 
     new_school_id = str(uuid.uuid4())
-    await sess.execute(text(
-        """
-        INSERT INTO schools (id, name, country, county, curriculum, email, phone, plan, is_active)
-        VALUES (:id, :n, :c, :co, :cur, :e, :p, 'free', true)
-        """
-    ), {
-        "id": new_school_id, "n": body.school_name, "c": body.country, "co": body.county,
-        "cur": body.curriculum, "e": body.admin_email, "p": body.admin_phone,
-    })
-
     temp_password = _gen_temp_password()
     new_user_id = str(uuid.uuid4())
-    await sess.execute(text(
-        """
-        INSERT INTO users (id, school_id, name, email, phone, password_hash, must_reset_password,
-                           role, country, curriculum, is_active, email_verified, onboarded)
-        VALUES (:id, :sid, :n, :e, :p, :pw, true, 'admin', :c, :cur, true, false, false)
-        """
-    ), {
-        "id": new_user_id, "sid": new_school_id, "n": body.admin_name, "e": body.admin_email,
-        "p": body.admin_phone, "pw": _hash_password(temp_password), "c": body.country, "cur": body.curriculum,
-    })
+    clean_admin_phone = _blank_to_none(body.admin_phone)
+    try:
+        await sess.execute(text(
+            """
+            INSERT INTO schools (id, name, country, county, curriculum, email, phone, plan, is_active)
+            VALUES (:id, :n, :c, :co, :cur, :e, :p, 'free', true)
+            """
+        ), {
+            "id": new_school_id,
+            "n": body.school_name,
+            "c": body.country,
+            "co": body.county,
+            "cur": body.curriculum,
+            "e": body.admin_email,
+            "p": clean_admin_phone,
+        })
 
-    await sess.execute(text(
-        """
-        INSERT INTO sales_agent_referrals (id, agent_id, user_id, source)
-        VALUES (:rid, :a, :u, 'agent_added')
-        """
-    ), {"rid": str(uuid.uuid4()), "a": agent["id"], "u": new_user_id})
-    await sess.commit()
+        await sess.execute(text(
+            """
+            INSERT INTO users (id, school_id, name, email, phone, password_hash, must_reset_password,
+                               role, country, curriculum, is_active, email_verified, onboarded)
+            VALUES (:id, :sid, :n, :e, :p, :pw, true, 'admin', :c, :cur, true, false, false)
+            """
+        ), {
+            "id": new_user_id,
+            "sid": new_school_id,
+            "n": body.admin_name,
+            "e": body.admin_email,
+            "p": clean_admin_phone,
+            "pw": _hash_password(temp_password),
+            "c": body.country,
+            "cur": body.curriculum,
+        })
+
+        await sess.execute(text(
+            """
+            INSERT INTO sales_agent_referrals (id, agent_id, user_id, source)
+            VALUES (:rid, :a, :u, 'agent_added')
+            """
+        ), {"rid": str(uuid.uuid4()), "a": agent["id"], "u": new_user_id})
+        await sess.commit()
+    except IntegrityError as exc:
+        await sess.rollback()
+        err = str(getattr(exc, "orig", exc)).lower()
+        if "email" in err:
+            detail = "A user with that admin email already exists"
+        elif "phone" in err:
+            detail = "A user with that admin phone already exists"
+        else:
+            detail = "Email or phone already registered"
+        raise HTTPException(status.HTTP_409_CONFLICT, detail) from exc
 
     await bus.publish("user.onboarded", {
         "user_id": new_user_id,
@@ -505,7 +554,7 @@ async def create_agent(
                                role, is_active, email_verified, onboarded)
             VALUES (:id, :n, :e, :p, :pw, true, 'sales_agent', true, false, true)
             """
-        ), {"id": new_uid, "n": body.name, "e": body.email, "p": body.phone,
+        ), {"id": new_uid, "n": body.name, "e": body.email, "p": _blank_to_none(body.phone),
             "pw": _hash_password(temp_password)})
         user_row = (await sess.execute(
             text("SELECT id, name, email, role FROM users WHERE id = :u"), {"u": new_uid}
